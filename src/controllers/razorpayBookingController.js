@@ -20,7 +20,23 @@ class RazorpayBookingController {
     static async initiatePayment(req, res) {
         try {
             const { bookingId } = req.params;
-            const userId = req.user._id;
+            const { userId, customerName, customerEmail, customerPhone } = req.body;
+            
+            // Validate userId
+            if (!userId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "userId is required in request body"
+                });
+            }
+            
+            // Validate ObjectId format
+            if (!mongoose.Types.ObjectId.isValid(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid userId format"
+                });
+            }
 
             // Validate ObjectId
             if (!mongoose.Types.ObjectId.isValid(bookingId)) {
@@ -80,9 +96,9 @@ class RazorpayBookingController {
                     currency: 'INR',
                     name: 'IndigoRhapsody',
                     description: `Stylist Booking - ${booking.bookingTitle}`,
-                    customerName: booking.userId.displayName || 'Customer',
-                    customerEmail: booking.userId.email || '',
-                    customerPhone: booking.userId.phoneNumber || ''
+                    customerName: customerName || booking.userId?.displayName || 'Customer',
+                    customerEmail: customerEmail || booking.userId?.email || '',
+                    customerPhone: customerPhone || booking.userId?.phoneNumber || ''
                 });
 
                 return res.status(200).json({
@@ -112,9 +128,9 @@ class RazorpayBookingController {
                     bookingTitle: booking.bookingTitle
                 },
                 customerDetails: {
-                    name: booking.userId.displayName || 'Customer',
-                    email: booking.userId.email || '',
-                    contact: booking.userId.phoneNumber || ''
+                    name: customerName || booking.userId?.displayName || 'Customer',
+                    email: customerEmail || booking.userId?.email || '',
+                    contact: customerPhone || booking.userId?.phoneNumber || ''
                 }
             };
 
@@ -139,9 +155,9 @@ class RazorpayBookingController {
                 ...orderResult.data,
                 name: 'IndigoRhapsody',
                 description: `Stylist Booking - ${booking.bookingTitle}`,
-                customerName: booking.userId.displayName || 'Customer',
-                customerEmail: booking.userId.email || '',
-                customerPhone: booking.userId.phoneNumber || ''
+                customerName: customerName || booking.userId?.displayName || 'Customer',
+                customerEmail: customerEmail || booking.userId?.email || '',
+                customerPhone: customerPhone || booking.userId?.phoneNumber || ''
             });
 
             return res.status(200).json({
@@ -337,22 +353,32 @@ class RazorpayBookingController {
     static async createBookingAndInitiatePayment(req, res) {
         try {
             const {
+                userId,
                 stylistId,
                 bookingType = 'consultation',
                 bookingTitle,
                 bookingDescription,
                 scheduledDate,
                 scheduledTime,
-                duration = 60
+                duration = 60,
+                customerName,
+                customerEmail,
+                customerPhone
             } = req.body;
 
-            const userId = req.user._id;
-
             // Validate required fields
-            if (!stylistId || !bookingTitle || !bookingDescription || !scheduledDate || !scheduledTime) {
+            if (!userId || !stylistId || !bookingTitle || !bookingDescription || !scheduledDate || !scheduledTime) {
                 return res.status(400).json({
                     success: false,
-                    message: "All required fields must be provided: stylistId, bookingTitle, bookingDescription, scheduledDate, scheduledTime"
+                    message: "All required fields must be provided: userId, stylistId, bookingTitle, bookingDescription, scheduledDate, scheduledTime"
+                });
+            }
+            
+            // Validate ObjectId formats
+            if (!mongoose.Types.ObjectId.isValid(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid userId format"
                 });
             }
 
@@ -499,9 +525,9 @@ class RazorpayBookingController {
                     bookingType: bookingType
                 },
                 customerDetails: {
-                    name: req.user.displayName || 'Customer',
-                    email: req.user.email || '',
-                    contact: req.user.phoneNumber || ''
+                    name: customerName || 'Customer',
+                    email: customerEmail || '',
+                    contact: customerPhone || ''
                 }
             };
 
@@ -532,9 +558,9 @@ class RazorpayBookingController {
                 ...orderResult.data,
                 name: 'IndigoRhapsody',
                 description: `Stylist Booking - ${bookingTitle}`,
-                customerName: req.user.displayName || 'Customer',
-                customerEmail: req.user.email || '',
-                customerPhone: req.user.phoneNumber || ''
+                customerName: customerName || 'Customer',
+                customerEmail: customerEmail || '',
+                customerPhone: customerPhone || ''
             });
 
             return res.status(201).json({
@@ -581,7 +607,23 @@ class RazorpayBookingController {
     static async getPaymentStatus(req, res) {
         try {
             const { bookingId } = req.params;
-            const userId = req.user._id;
+            const { userId, customerName, customerEmail, customerPhone } = req.body;
+            
+            // Validate userId
+            if (!userId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "userId is required in request body"
+                });
+            }
+            
+            // Validate ObjectId format
+            if (!mongoose.Types.ObjectId.isValid(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid userId format"
+                });
+            }
 
             // Validate ObjectId
             if (!mongoose.Types.ObjectId.isValid(bookingId)) {
