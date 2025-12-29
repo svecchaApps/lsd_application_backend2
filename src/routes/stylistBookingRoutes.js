@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const stylistBookingController = require("../controllers/stylistBookingController");
+const razorpayBookingController = require("../controllers/razorpayBookingController");
 const {
     authMiddleware,
     roleMiddleware,
@@ -19,15 +20,36 @@ router.post(
     stylistBookingController.createBooking
 );
 
+// Payment routes - using new Razorpay booking controller
 router.post(
     "/payment/initiate/:bookingId",
     authMiddleware,
-    stylistBookingController.initiatePayment
+    razorpayBookingController.initiatePayment
 );
 
 router.post(
+    "/payment/verify",
+    razorpayBookingController.verifyPayment
+);
+
+// Legacy callback route (kept for backward compatibility)
+router.post(
     "/payment/callback",
-    stylistBookingController.handlePaymentCallback
+    razorpayBookingController.verifyPayment
+);
+
+// Combined create booking and initiate payment
+router.post(
+    "/create-and-pay",
+    authMiddleware,
+    razorpayBookingController.createBookingAndInitiatePayment
+);
+
+// Get payment status
+router.get(
+    "/payment/status/:bookingId",
+    authMiddleware,
+    razorpayBookingController.getPaymentStatus
 );
 
 router.get(
