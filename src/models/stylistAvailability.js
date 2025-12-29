@@ -379,7 +379,29 @@ stylistAvailabilitySchema.pre('save', function (next) {
 stylistAvailabilitySchema.methods.isAvailableAt = function (date, time) {
     const targetDate = new Date(date);
     const dayOfWeek = targetDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase().substring(0, 3);
-    const daySchedule = this.weeklySchedule[dayOfWeek];
+    const daySchedule = this.weeklySchedule && this.weeklySchedule[dayOfWeek];
+
+    // If day schedule doesn't exist, check date overrides first
+    if (!daySchedule) {
+        // Check for date-specific overrides
+        const dateOverride = this.dateOverrides && this.dateOverrides.find(override =>
+            override.date.toDateString() === targetDate.toDateString()
+        );
+
+        if (dateOverride) {
+            if (!dateOverride.isAvailable) {
+                return false;
+            }
+            // Use override times if available
+            if (dateOverride.startTime && dateOverride.endTime) {
+                return time >= dateOverride.startTime && time <= dateOverride.endTime;
+            }
+            return true; // Available but no time restrictions
+        }
+        
+        // No schedule and no override - default to not available
+        return false;
+    }
 
     // Check if day is available in weekly schedule
     if (!daySchedule.isAvailable) {
@@ -387,7 +409,7 @@ stylistAvailabilitySchema.methods.isAvailableAt = function (date, time) {
     }
 
     // Check for date-specific overrides
-    const dateOverride = this.dateOverrides.find(override =>
+    const dateOverride = this.dateOverrides && this.dateOverrides.find(override =>
         override.date.toDateString() === targetDate.toDateString()
     );
 
@@ -402,14 +424,33 @@ stylistAvailabilitySchema.methods.isAvailableAt = function (date, time) {
     }
 
     // Check weekly schedule times
-    return time >= daySchedule.startTime && time <= daySchedule.endTime;
+    if (daySchedule.startTime && daySchedule.endTime) {
+        return time >= daySchedule.startTime && time <= daySchedule.endTime;
+    }
+    
+    // If no time restrictions, day is available
+    return true;
 };
 
 // Method to get available time slots for a specific date
 stylistAvailabilitySchema.methods.getAvailableSlots = function (date, duration = 60) {
     const targetDate = new Date(date);
     const dayOfWeek = targetDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase().substring(0, 3);
-    const daySchedule = this.weeklySchedule[dayOfWeek];
+    const daySchedule = this.weeklySchedule && this.weeklySchedule[dayOfWeek];
+
+    // If day schedule doesn't exist, check date overrides
+    if (!daySchedule) {
+        const dateOverride = this.dateOverrides && this.dateOverrides.find(override =>
+            override.date.toDateString() === targetDate.toDateString()
+        );
+
+        if (dateOverride && !dateOverride.isAvailable) {
+            return [];
+        }
+
+        // If no schedule exists, return empty array (stylist not available)
+        return [];
+    }
 
     // Check if day is available
     if (!daySchedule.isAvailable) {
@@ -417,7 +458,7 @@ stylistAvailabilitySchema.methods.getAvailableSlots = function (date, duration =
     }
 
     // Check for date-specific overrides
-    const dateOverride = this.dateOverrides.find(override =>
+    const dateOverride = this.dateOverrides && this.dateOverrides.find(override =>
         override.date.toDateString() === targetDate.toDateString()
     );
 

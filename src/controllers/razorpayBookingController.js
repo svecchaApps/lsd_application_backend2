@@ -383,11 +383,21 @@ class RazorpayBookingController {
             const StylistAvailability = require("../models/stylistAvailability");
             const availability = await StylistAvailability.findOne({ stylistId });
 
-            if (availability && !availability.isAvailableAt(slotDate, scheduledTime)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Selected time slot is not available"
-                });
+            // Check availability if it exists, but don't fail if check throws an error
+            if (availability) {
+                try {
+                    const isAvailable = availability.isAvailableAt(slotDate, scheduledTime);
+                    if (!isAvailable) {
+                        return res.status(400).json({
+                            success: false,
+                            message: "Selected time slot is not available"
+                        });
+                    }
+                } catch (availabilityError) {
+                    // If availability check fails (e.g., day schedule not configured),
+                    // log the error but continue with booking creation
+                    console.warn("Availability check failed, proceeding with booking:", availabilityError.message);
+                }
             }
 
             // Check for existing bookings at the same time
