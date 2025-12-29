@@ -425,7 +425,37 @@ stylistAvailabilitySchema.methods.isAvailableAt = function (date, time) {
 
     // Check weekly schedule times
     if (daySchedule.startTime && daySchedule.endTime) {
-        return time >= daySchedule.startTime && time <= daySchedule.endTime;
+        // Normalize time format (ensure HH:MM format)
+        const normalizeTime = (t) => {
+            if (!t) return null;
+            const parts = t.split(':');
+            if (parts.length >= 2) {
+                return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+            }
+            return t;
+        };
+        
+        const normalizedTime = normalizeTime(time);
+        const normalizedStart = normalizeTime(daySchedule.startTime);
+        const normalizedEnd = normalizeTime(daySchedule.endTime);
+        
+        // String comparison works for HH:MM format
+        const isWithinTimeRange = normalizedTime >= normalizedStart && normalizedTime <= normalizedEnd;
+        
+        // Also check breaks
+        if (isWithinTimeRange && daySchedule.breaks && daySchedule.breaks.length > 0) {
+            for (const breakTime of daySchedule.breaks) {
+                if (breakTime.startTime && breakTime.endTime) {
+                    const breakStart = normalizeTime(breakTime.startTime);
+                    const breakEnd = normalizeTime(breakTime.endTime);
+                    if (normalizedTime >= breakStart && normalizedTime <= breakEnd) {
+                        return false; // Time falls within a break
+                    }
+                }
+            }
+        }
+        
+        return isWithinTimeRange;
     }
     
     // If no time restrictions, day is available

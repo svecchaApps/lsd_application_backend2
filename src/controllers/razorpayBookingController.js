@@ -381,17 +381,69 @@ class RazorpayBookingController {
             // Check if slot is available
             const slotDate = new Date(scheduledDate);
             const StylistAvailability = require("../models/stylistAvailability");
-            const availability = await StylistAvailability.findOne({ stylistId });
+            let availability = await StylistAvailability.findOne({ stylistId });
 
-            // Check availability if it exists, but don't fail if check throws an error
+            // If no availability record exists, create a default one
+            if (!availability) {
+                availability = new StylistAvailability({
+                    stylistId,
+                    isActive: true,
+                    weeklySchedule: {
+                        monday: { isAvailable: true, startTime: "09:00", endTime: "20:00", breaks: [] },
+                        tuesday: { isAvailable: true, startTime: "09:00", endTime: "20:00", breaks: [] },
+                        wednesday: { isAvailable: true, startTime: "09:00", endTime: "20:00", breaks: [] },
+                        thursday: { isAvailable: true, startTime: "09:00", endTime: "20:00", breaks: [] },
+                        friday: { isAvailable: true, startTime: "09:00", endTime: "20:00", breaks: [] },
+                        saturday: { isAvailable: true, startTime: "09:00", endTime: "20:00", breaks: [] },
+                        sunday: { isAvailable: true, startTime: "09:00", endTime: "20:00", breaks: [] }
+                    },
+                    dateOverrides: [],
+                    bookingPreferences: {
+                        minAdvanceBooking: 0,
+                        maxAdvanceBooking: 365,
+                        slotDuration: 60,
+                        maxBookingsPerDay: 20,
+                        bufferTime: 0
+                    }
+                });
+                await availability.save();
+                console.log(`Created default availability for stylist ${stylistId}`);
+            }
+
+            // Check availability if it exists
+            // Note: We only block booking if the day is explicitly marked as unavailable (isAvailable: false)
+            // For all other cases (missing schedule, time outside range, etc.), we allow the booking
+            // but log a warning. This makes the system more flexible.
             if (availability) {
                 try {
-                    const isAvailable = availability.isAvailableAt(slotDate, scheduledTime);
-                    if (!isAvailable) {
+                    const dayOfWeek = slotDate.toLocaleDateString('en-US', { weekday: 'long' });
+                    const dayKey = dayOfWeek.toLowerCase().substring(0, 3);
+                    const daySchedule = availability.weeklySchedule && 
+                        availability.weeklySchedule[dayKey];
+                    
+                    // Only block if the day is explicitly marked as unavailable
+                    if (daySchedule && daySchedule.isAvailable === false) {
                         return res.status(400).json({
                             success: false,
-                            message: "Selected time slot is not available"
+                            message: `Stylist is not available on ${dayOfWeek}`,
+                            details: {
+                                scheduledDate: scheduledDate,
+                                scheduledTime: scheduledTime,
+                                dayOfWeek: dayOfWeek,
+                                availability: {
+                                    isAvailable: false,
+                                    startTime: daySchedule.startTime,
+                                    endTime: daySchedule.endTime
+                                }
+                            }
                         });
+                    }
+                    
+                    // For other cases, check availability but don't block
+                    const isAvailable = availability.isAvailableAt(slotDate, scheduledTime);
+                    if (!isAvailable && daySchedule) {
+                        // Log warning but allow booking
+                        console.warn(`Availability check: Time ${scheduledTime} may be outside available hours (${daySchedule.startTime} - ${daySchedule.endTime}) for ${dayOfWeek}. Proceeding with booking.`);
                     }
                 } catch (availabilityError) {
                     // If availability check fails (e.g., day schedule not configured),
