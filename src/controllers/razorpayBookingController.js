@@ -517,7 +517,7 @@ class RazorpayBookingController {
             const orderData = {
                 amount: paymentAmount,
                 currency: 'INR',
-                receipt: `booking_${booking._id}_${Date.now()}`,
+                receipt: `booking_${booking._id}`,
                 notes: {
                     bookingId: booking._id.toString(),
                     userId: userId.toString(),
