@@ -1,10 +1,5 @@
 # Web Banner Creation Examples
 
-## 📋 Sample Request Bodies for Creating Web Banners
-
----
-
-## Example 1: Homepage Hero Banner (Web Only)
 
 ### Basic Hero Banner
 ```json
