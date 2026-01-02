@@ -534,7 +534,6 @@ class RazorpayBookingController {
             const orderResult = await RazorpayService.createOrder(orderData);
 
             if (!orderResult.success) {
-                // If payment order creation fails, booking still exists but payment is pending
                 return res.status(500).json({
                     success: false,
                     message: "Booking created but failed to initiate payment",
@@ -547,7 +546,7 @@ class RazorpayBookingController {
                 });
             }
 
-            // Update booking with payment order details
+            // Updat booking with payment order details
             booking.razorpayOrderId = orderResult.data.orderId;
             booking.paymentStatus = 'processing';
             booking.updatedAt = new Date();

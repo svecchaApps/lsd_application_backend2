@@ -9,6 +9,9 @@ const razorpay = new Razorpay({
 
 class RazorpayService {
 
+
+  
+
     /**
      * Create a new order
      * @param {Object} orderData - Order details
@@ -32,6 +35,7 @@ class RazorpayService {
             };
 
             const order = await razorpay.orders.create(options);
+            console.log(process.env.RAZORPAY_KEY_ID, process.env.RAZORPAY_KEY_SECRET);
 
             return {
                 success: true,
