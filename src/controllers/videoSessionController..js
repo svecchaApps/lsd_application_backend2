@@ -33,9 +33,9 @@ exports.joinSession = async (req, res) => {
     const start = booking.scheduledDate ;
     const end = new Date(start.getTime() + booking.duration * 60000);
 
-    if (now < start) {
-      return res.status(400).json({ success: false, message: "Session has not started yet" });
-    }
+    // if (now < start) {
+    //   return res.status(400).json({ success: false, message: "Session has not started yet" });
+    // }
 
     // if (now > end) {
     //   return res.status(400).json({ success: false, message: "Session already ended" });
