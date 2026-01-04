@@ -1,80 +1,116 @@
 const StylistBooking = require("../models/stylistBooking");
 const AgoraService = require("../service/agoraService");
-
 exports.joinSession = async (req, res) => {
-  try {
-    const { bookingId,userId,role } = req.params;
- 
-
-    const booking = await StylistBooking.findById(bookingId);
-
-    if (!booking) {
-      return res.status(404).json({ success: false, message: "Booking not found" });
+    try {
+      const { bookingId } = req.params;
+      const { userId, role } = req.body;
+  
+      if (!userId || !role) {
+        return res.status(400).json({
+          success: false,
+          message: "userId and role are required"
+        });
+      }
+  
+      if (!["user", "stylist"].includes(role)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid role"
+        });
+      }
+  
+      const booking = await StylistBooking.findById(bookingId);
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found"
+        });
+      }
+  
+      // 🔐 Ownership validation
+    //   const isUser =
+    //     role === "user" && booking.userId.toString() === userId;
+  
+    //   const isStylist =
+    //     role === "stylist" && booking.stylistId.toString() === userId;
+  
+    //   if (!isUser && !isStylist) {
+    //     return res.status(403).json({
+    //       success: false,
+    //       message: "Unauthorized"
+    //     });
+    //   }
+  
+      // 💰 Allow test + real payments
+      if (!["completed", "test"].includes(booking.paymentStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: "Payment not completed"
+        });
+      }
+  
+      if (!["confirmed", "in_progress"].includes(booking.status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Session not active"
+        });
+      }
+  
+      // ⏱ Correct time handling
+      const now = new Date();
+      const start = booking.scheduledDateTime;
+      const end = new Date(start.getTime() + booking.duration * 60000);
+  
+      if (now < start) {
+        return res.status(400).json({
+          success: false,
+          message: "Session has not started yet"
+        });
+      }
+  
+      if (now > end) {
+        return res.status(400).json({
+          success: false,
+          message: "Session already ended"
+        });
+      }
+  
+      // 🎥 Generate Agora tokens
+      const tokenResult = AgoraService.generateBookingSessionTokens({
+        booking,
+        userId,
+        role
+      });
+  
+      if (!tokenResult.success) {
+        return res.status(500).json(tokenResult);
+      }
+  
+      // 🟢 Mark session live (only once)
+      if (booking.videoCallStatus !== "in_progress") {
+        booking.videoCallStatus = "in_progress";
+        booking.status = "in_progress";
+        booking.videoCallStartedAt = now;
+        await booking.save();
+      }
+  
+      return res.status(200).json({
+        success: true,
+        message: "Session joined",
+        data: tokenResult.data
+      });
+  
+    } catch (error) {
+      console.error("Join session error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to join session",
+        error: error.message
+      });
     }
-
-    // 🔐 Ownership validation
-    if (
-      (role === "user" && booking.userId.toString() !== userId) ||
-      (role === "stylist" && booking.stylistId.toString() !== userId)
-    ) {
-      return res.status(403).json({ success: false, message: "Unauthorized" });
-    }
-
-    // 💰 Payment & status checks
-    if (booking.paymentStatus !== "completed") {
-      return res.status(400).json({ success: false, message: "Payment not completed" });
-    }
-
-    if (!["confirmed", "in_progress"].includes(booking.status)) {
-      return res.status(400).json({ success: false, message: "Session not active" });
-    }
-
-    const now = new Date();
-    const start = booking.scheduledDate ;
-    const end = new Date(start.getTime() + booking.duration * 60000);
-
-    // if (now < start) {
-    //   return res.status(400).json({ success: false, message: "Session has not started yet" });
-    // }
-
-    // if (now > end) {
-    //   return res.status(400).json({ success: false, message: "Session already ended" });
-    // }
-
-    // 🎥 Generate Agora tokens
-    const tokenResult = AgoraService.generateBookingSessionTokens({
-      booking,
-      userId,
-      role
-    });
-
-    if (!tokenResult.success) {
-      return res.status(500).json(tokenResult);
-    }
-
-    // 🟢 Mark session live (only once)
-    if (booking.videoCallStatus !== "in_progress") {
-      booking.videoCallStatus = "in_progress";
-      booking.status = "in_progress";
-      booking.videoCallStartedAt = now;
-      booking.agoraChannelName = tokenResult.data.channelName;
-      await booking.save();
-    }
-
-    return res.json({
-      success: true,
-      message: "Session joined",
-      data: tokenResult.data
-    });
-
-  } catch (error) {
-    console.error("Join session error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to join session"
-    });
-  }
-};
+  };
+  
+  
 
 
 exports.endSession = async (req, res) => {

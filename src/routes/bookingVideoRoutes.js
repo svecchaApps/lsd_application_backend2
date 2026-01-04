@@ -17,6 +17,7 @@ const authenticate = require("../middleware/authMiddleware");
  */
 router.post(
   "/bookings/:bookingId/join-session",
+//   authenticate.authMiddleware,
   joinSession
 );
 
