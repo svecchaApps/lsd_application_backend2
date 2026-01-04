@@ -30,7 +30,7 @@ exports.joinSession = async (req, res) => {
     }
 
     const now = new Date();
-    const start = booking.scheduledDate + " " + booking.scheduledTime;
+    const start = booking.scheduledDate ;
     const end = new Date(start.getTime() + booking.duration * 60000);
 
     if (now < start) {
