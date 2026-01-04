@@ -37,9 +37,9 @@ exports.joinSession = async (req, res) => {
       return res.status(400).json({ success: false, message: "Session has not started yet" });
     }
 
-    if (now > end) {
-      return res.status(400).json({ success: false, message: "Session already ended" });
-    }
+    // if (now > end) {
+    //   return res.status(400).json({ success: false, message: "Session already ended" });
+    // }
 
     // 🎥 Generate Agora tokens
     const tokenResult = AgoraService.generateBookingSessionTokens({
