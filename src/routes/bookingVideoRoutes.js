@@ -9,7 +9,6 @@ const {
 
 const authenticate = require("../middleware/authMiddleware");
 
-router.use(authenticate);
 
 /**
  * JOIN VIDEO + CHAT SESSION

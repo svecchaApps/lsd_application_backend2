@@ -412,17 +412,21 @@ class StylistBookingController {
           }
       
           // 2️⃣ Ownership check (user or stylist)
-          const isUser = booking.userId._id.toString() === userId.toString();
-          const isStylist = booking.stylistId.userId.toString() === userId.toString();
+        //   const isUser =
+        //   booking.userId._id.toString() === userId.toString();
+        
+        // const isStylist =
+        //   booking.stylistId._id.toString() === userId.toString();
+        
       
-          if (!isUser && !isStylist) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(403).json({
-              success: false,
-              message: "Unauthorized"
-            });
-          }
+        //   if (!isUser && !isStylist) {
+        //     await session.abortTransaction();
+        //     session.endSession();
+        //     return res.status(403).json({
+        //       success: false,
+        //       message: "Unauthorized"
+        //     });
+        //   }
       
           // 3️⃣ Guard: don’t override real paid bookings
           if (booking.paymentStatus === "completed") {

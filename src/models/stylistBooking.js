@@ -78,7 +78,7 @@ allowedUntil: Date, // hard cutoff time
     // Payment details
     paymentStatus: {
         type: String,
-        enum: ['pending', 'processing', 'completed', 'failed', 'refunded', 'partially_refunded'],
+        enum: ['pending','test', 'processing', 'completed', 'failed', 'refunded', 'partially_refunded'],
         default: 'pending'
     },
     paymentAmount: {
@@ -109,7 +109,7 @@ allowedUntil: Date, // hard cutoff time
     // Video call details
     videoCallStatus: {
         type: String,
-        enum: ['not_started', 'initiated', 'in_progress', 'ended', 'failed'],
+        enum: ['not_started', 'test', 'initiated', 'scheduled', 'in_progress', 'ended', 'failed'],
         default: 'not_started'
     },
     agoraChannelName: {
