@@ -3,9 +3,8 @@ const AgoraService = require("../service/agoraService");
 
 exports.joinSession = async (req, res) => {
   try {
-    const { bookingId } = req.params;
-    const userId = req.user._id.toString();
-    const role = req.user.role; // "user" | "stylist"
+    const { bookingId,userId,role } = req.params;
+ 
 
     const booking = await StylistBooking.findById(bookingId);
 
