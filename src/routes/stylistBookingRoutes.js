@@ -77,6 +77,13 @@ router.post(
 );
 
 router.post(
+    "/bookings/:bookingId/test-create-session",
+    authMiddleware,
+    stylistBookingController.testCreateAgoraSession
+  );
+  
+
+router.post(
     "/reschedule/:bookingId",
     authMiddleware,
     stylistBookingController.rescheduleBooking

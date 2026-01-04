@@ -20,7 +20,11 @@ const stylistBookingSchema = new mongoose.Schema({
         ref: "StylistProfile",
         required: true
     },
-
+    isTestBooking: {
+        type: Boolean,
+        default: false
+      },
+      
     // Booking details
     bookingType: {
         type: String,
@@ -36,6 +40,14 @@ const stylistBookingSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    agoraAppId: String, // optional if env-based
+agoraChannelName: String,
+agoraRtcToken: String,
+agoraRtmToken: String,
+
+sessionStartedAt: Date,
+sessionEndedAt: Date,
+allowedUntil: Date, // hard cutoff time
 
     // Scheduling
     scheduledDate: {

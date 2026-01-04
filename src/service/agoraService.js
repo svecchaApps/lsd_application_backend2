@@ -1,291 +1,214 @@
-const RtcTokenBuilder = require('agora-access-token').RtcTokenBuilder;
-const RtcRole = require('agora-access-token').RtcRole;
-const RtmTokenBuilder = require('agora-access-token').RtmTokenBuilder;
-const RtmRole = require('agora-access-token').RtmRole;
-
-class AgoraService {
-
-    /**
-     * Generate RTC token for video calls
-     * @param {string} channelName - Channel name
-     * @param {string} uid - User ID
-     * @param {number} role - User role (1 = publisher, 2 = subscriber)
-     * @param {number} expirationTimeInSeconds - Token expiration time
-     * @returns {Object} - Token response
-     */
-    static generateRtcToken(channelName, uid, role = RtcRole.PUBLISHER, expirationTimeInSeconds = 3600) {
-        try {
-            const appId = process.env.AGORA_APP_ID;
-            const appCertificate = process.env.AGORA_APP_CERTIFICATE;
-
-            if (!appId || !appCertificate) {
-                throw new Error('Agora credentials not configured');
-            }
-
-            const currentTimestamp = Math.floor(Date.now() / 1000);
-            const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
-
-            const token = RtcTokenBuilder.buildTokenWithUid(
-                appId,
-                appCertificate,
-                channelName,
-                uid,
-                role,
-                privilegeExpiredTs
-            );
-
-            return {
-                success: true,
-                data: {
-                    token: token,
-                    appId: appId,
-                    channelName: channelName,
-                    uid: uid,
-                    role: role,
-                    expirationTime: privilegeExpiredTs,
-                    expiresIn: expirationTimeInSeconds
-                }
-            };
-        } catch (error) {
-            console.error('Agora RTC token generation error:', error);
-            return {
-                success: false,
-                message: error.message || 'Failed to generate RTC token',
-                error: error
-            };
-        }
+const {
+    RtcTokenBuilder,
+    RtcRole,
+    RtmTokenBuilder,
+    RtmRole
+  } = require("agora-access-token");
+  
+  class AgoraService {
+  
+    /* ----------------------------------
+     * Internal helpers
+     * ---------------------------------- */
+  
+    static getAgoraConfig() {
+      const appId = process.env.AGORA_APP_ID;
+      const appCertificate = process.env.AGORA_APP_CERTIFICATE;
+  
+      if (!appId || !appCertificate) {
+        throw new Error("Agora credentials not configured");
+      }
+  
+      return { appId, appCertificate };
     }
-
+  
     /**
-     * Generate RTM token for messaging
-     * @param {string} uid - User ID
-     * @param {number} expirationTimeInSeconds - Token expiration time
-     * @returns {Object} - Token response
+     * Convert Mongo ObjectId → numeric UID for RTC
+     * Agora RTC prefers numbers
      */
-    static generateRtmToken(uid, expirationTimeInSeconds = 3600) {
-        try {
-            const appId = process.env.AGORA_APP_ID;
-            const appCertificate = process.env.AGORA_APP_CERTIFICATE;
-
-            if (!appId || !appCertificate) {
-                throw new Error('Agora credentials not configured');
-            }
-
-            const currentTimestamp = Math.floor(Date.now() / 1000);
-            const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
-
-            const token = RtmTokenBuilder.buildToken(
-                appId,
-                appCertificate,
-                uid,
-                RtmRole.Rtm_User,
-                privilegeExpiredTs
-            );
-
-            return {
-                success: true,
-                data: {
-                    token: token,
-                    appId: appId,
-                    uid: uid,
-                    expirationTime: privilegeExpiredTs,
-                    expiresIn: expirationTimeInSeconds
-                }
-            };
-        } catch (error) {
-            console.error('Agora RTM token generation error:', error);
-            return {
-                success: false,
-                message: error.message || 'Failed to generate RTM token',
-                error: error
-            };
-        }
+    static generateNumericUid(objectId) {
+      return parseInt(objectId.toString().slice(-8), 16);
     }
-
+  
     /**
-     * Generate both RTC and RTM tokens for a user
-     * @param {string} channelName - Channel name
-     * @param {string} uid - User ID
-     * @param {number} expirationTimeInSeconds - Token expiration time
-     * @returns {Object} - Combined token response
+     * Calculate token expiration based on booking
      */
-    static generateTokens(channelName, uid, expirationTimeInSeconds = 3600) {
-        try {
-            const rtcTokenResult = this.generateRtcToken(channelName, uid, RtcRole.PUBLISHER, expirationTimeInSeconds);
-            const rtmTokenResult = this.generateRtmToken(uid, expirationTimeInSeconds);
-
-            if (!rtcTokenResult.success || !rtmTokenResult.success) {
-                return {
-                    success: false,
-                    message: 'Failed to generate one or more tokens',
-                    errors: {
-                        rtc: rtcTokenResult.message,
-                        rtm: rtmTokenResult.message
-                    }
-                };
-            }
-
-            return {
-                success: true,
-                data: {
-                    rtcToken: rtcTokenResult.data,
-                    rtmToken: rtmTokenResult.data,
-                    channelName: channelName,
-                    uid: uid,
-                    expirationTime: rtcTokenResult.data.expirationTime,
-                    expiresIn: expirationTimeInSeconds
-                }
-            };
-        } catch (error) {
-            console.error('Agora token generation error:', error);
-            return {
-                success: false,
-                message: error.message || 'Failed to generate tokens',
-                error: error
-            };
-        }
+    static calculateExpiration(booking) {
+      const start = booking.scheduledDateTime;
+      const end = new Date(start.getTime() + booking.duration * 60000);
+      return Math.floor(end.getTime() / 1000);
     }
-
+  
+    /* ----------------------------------
+     * Channel naming (SAFE)
+     * ---------------------------------- */
+  
     /**
-     * Generate channel name for booking
-     * @param {string} bookingId - Booking ID
-     * @param {string} stylistId - Stylist ID
-     * @param {string} userId - User ID
-     * @returns {string} - Channel name
+     * Single channel per booking
      */
-    static generateChannelName(bookingId, stylistId, userId) {
-        return `booking_${bookingId}_${stylistId}_${userId}`;
+    static generateChannelName(bookingIdString) {
+      return `session_${bookingIdString}`;
     }
-
-    /**
-     * Validate channel name format
-     * @param {string} channelName - Channel name to validate
-     * @returns {boolean} - Validation result
-     */
-    static validateChannelName(channelName) {
-        const pattern = /^booking_[a-f0-9]{24}_[a-f0-9]{24}_[a-f0-9]{24}$/;
-        return pattern.test(channelName);
-    }
-
-    /**
-     * Extract booking details from channel name
-     * @param {string} channelName - Channel name
-     * @returns {Object|null} - Booking details or null if invalid
-     */
-    static extractBookingDetails(channelName) {
-        if (!this.validateChannelName(channelName)) {
-            return null;
-        }
-
-        const parts = channelName.split('_');
-        if (parts.length !== 4) {
-            return null;
-        }
-
-        return {
-            bookingId: parts[1],
-            stylistId: parts[2],
-            userId: parts[3]
-        };
-    }
-
-    /**
-     * Generate user-specific channel name for messaging
-     * @param {string} userId - User ID
-     * @param {string} stylistId - Stylist ID
-     * @returns {string} - Channel name for messaging
-     */
-    static generateMessageChannelName(userId, stylistId) {
-        return `chat_${userId}_${stylistId}`;
-    }
-
-    /**
-     * Get Agora configuration for client
-     * @returns {Object} - Agora configuration
-     */
-    static getClientConfig() {
-        return {
-            appId: process.env.AGORA_APP_ID,
-            tokenExpirationTime: 3600,
-            defaultChannelProfile: 0, // Communication profile
-            defaultClientRole: 1, // Publisher role
-            defaultVideoProfile: 0, // 640x480, 15fps
-            defaultAudioProfile: 0, // Default audio profile
-            logLevel: 2, // Info level
-            logFilter: 0x0f // All logs
-        };
-    }
-
-    /**
-     * Generate meeting room configuration
-     * @param {Object} bookingData - Booking data
-     * @returns {Object} - Meeting room configuration
-     */
-    static generateMeetingConfig(bookingData) {
-        const channelName = this.generateChannelName(
-            bookingData.bookingId,
-            bookingData.stylistId,
-            bookingData.userId
+  
+    /* ----------------------------------
+     * RTC TOKEN
+     * ---------------------------------- */
+  
+    static generateRtcToken({
+      channelName,
+      numericUid,
+      role = RtcRole.PUBLISHER,
+      expiresAt
+    }) {
+      try {
+        const { appId, appCertificate } = this.getAgoraConfig();
+  
+        const token = RtcTokenBuilder.buildTokenWithUid(
+          appId,
+          appCertificate,
+          channelName,
+          numericUid,
+          role,
+          expiresAt
         );
-
-        const rtcTokenResult = this.generateRtcToken(channelName, bookingData.userId);
-        const rtmTokenResult = this.generateRtmToken(bookingData.userId);
-
+  
         return {
-            success: rtcTokenResult.success && rtmTokenResult.success,
-            data: {
-                channelName: channelName,
-                appId: process.env.AGORA_APP_ID,
-                rtcToken: rtcTokenResult.data?.token,
-                rtmToken: rtmTokenResult.data?.token,
-                userId: bookingData.userId,
-                stylistId: bookingData.stylistId,
-                bookingId: bookingData.bookingId,
-                expirationTime: rtcTokenResult.data?.expirationTime,
-                expiresIn: 3600
-            },
-            errors: {
-                rtc: rtcTokenResult.message,
-                rtm: rtmTokenResult.message
-            }
+          success: true,
+          data: {
+            token,
+            appId,
+            channelName,
+            uid: numericUid,
+            role,
+            expiresAt
+          }
         };
+      } catch (error) {
+        return {
+          success: false,
+          message: "Failed to generate RTC token",
+          error
+        };
+      }
     }
-
-    /**
-     * Check if token is expired
-     * @param {number} expirationTime - Token expiration timestamp
-     * @returns {boolean} - True if expired
-     */
-    static isTokenExpired(expirationTime) {
-        const currentTime = Math.floor(Date.now() / 1000);
-        return currentTime >= expirationTime;
+  
+    /* ----------------------------------
+     * RTM TOKEN
+     * ---------------------------------- */
+  
+    static generateRtmToken({
+      rtmUid,
+      expiresAt
+    }) {
+      try {
+        const { appId, appCertificate } = this.getAgoraConfig();
+  
+        const token = RtmTokenBuilder.buildToken(
+          appId,
+          appCertificate,
+          rtmUid,
+          RtmRole.Rtm_User,
+          expiresAt
+        );
+  
+        return {
+          success: true,
+          data: {
+            token,
+            appId,
+            uid: rtmUid,
+            expiresAt
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: "Failed to generate RTM token",
+          error
+        };
+      }
     }
-
+  
+    /* ----------------------------------
+     * MAIN ENTRY POINT
+     * ---------------------------------- */
+  
     /**
-     * Refresh tokens if needed
-     * @param {string} channelName - Channel name
-     * @param {string} uid - User ID
-     * @param {number} currentExpirationTime - Current token expiration time
-     * @param {number} bufferTime - Buffer time in seconds before expiration
-     * @returns {Object} - Refresh result
+     * Generate Agora tokens strictly bound to booking
      */
-    static refreshTokensIfNeeded(channelName, uid, currentExpirationTime, bufferTime = 300) {
-        const currentTime = Math.floor(Date.now() / 1000);
-        const timeUntilExpiration = currentExpirationTime - currentTime;
-
-        if (timeUntilExpiration <= bufferTime) {
-            return this.generateTokens(channelName, uid);
+    static generateBookingSessionTokens({
+      booking,
+      userId,
+      role // "user" | "stylist"
+    }) {
+      try {
+        const now = new Date();
+  
+        const start = booking.scheduledDateTime;
+        const end = new Date(start.getTime() + booking.duration * 60000);
+  
+        if (now < start) {
+          throw new Error("Session has not started yet");
         }
-
+  
+        if (now > end) {
+          throw new Error("Session has already ended");
+        }
+  
+        const expiresAt = Math.floor(end.getTime() / 1000);
+  
+        const channelName = this.generateChannelName(
+          booking.bookingId
+        );
+  
+        const rtcUid = this.generateNumericUid(userId);
+        const rtmUid = `${role}_${userId}`;
+  
+        const rtc = this.generateRtcToken({
+          channelName,
+          numericUid: rtcUid,
+          expiresAt
+        });
+  
+        const rtm = this.generateRtmToken({
+          rtmUid,
+          expiresAt
+        });
+  
+        if (!rtc.success || !rtm.success) {
+          throw new Error("Token generation failed");
+        }
+  
         return {
-            success: true,
-            message: 'Tokens are still valid',
-            data: {
-                needsRefresh: false,
-                timeUntilExpiration: timeUntilExpiration
-            }
+          success: true,
+          data: {
+            appId: rtc.data.appId,
+            channelName,
+            rtcToken: rtc.data.token,
+            rtmToken: rtm.data.token,
+            rtcUid,
+            rtmUid,
+            expiresAt,
+            expiresIn: expiresAt - Math.floor(Date.now() / 1000)
+          }
         };
+      } catch (error) {
+        return {
+          success: false,
+          message: error.message,
+          error
+        };
+      }
     }
-}
-
-module.exports = AgoraService;
+  
+    /* ----------------------------------
+     * Utility
+     * ---------------------------------- */
+  
+    static isTokenExpired(expiresAt) {
+      return Math.floor(Date.now() / 1000) >= expiresAt;
+    }
+  }
+  
+  module.exports = AgoraService;
+  

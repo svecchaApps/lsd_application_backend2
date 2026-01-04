@@ -389,109 +389,280 @@ class StylistBookingController {
         }
     }
 
-    /**
-     * Handle payment callback
-     */
-    static async handlePaymentCallback(req, res) {
+    static async testCreateAgoraSession(req, res) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+      
         try {
-            const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-
-            // Verify payment signature
-            const isValidSignature = RazorpayService.verifyPaymentSignature({
-                razorpay_order_id,
-                razorpay_payment_id,
-                razorpay_signature
+          const { bookingId } = req.params;
+          const userId = req.user._id;
+      
+          // 1️⃣ Validate booking
+          const booking = await StylistBooking.findById(bookingId)
+            .populate("stylistId userId")
+            .session(session);
+      
+          if (!booking) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({
+              success: false,
+              message: "Booking not found"
             });
-
-            if (!isValidSignature) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid payment signature"
-                });
-            }
-
-            // Find booking by order ID
-            const booking = await StylistBooking.findOne({
-                razorpayOrderId: razorpay_order_id
-            }).populate('stylistId userId');
-
-            if (!booking) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Booking not found for this payment"
-                });
-            }
-
-            // Update booking with payment details
-            booking.razorpayPaymentId = razorpay_payment_id;
-            booking.razorpaySignature = razorpay_signature;
-            booking.paymentStatus = 'completed';
-            booking.paymentCompletedAt = new Date();
-            booking.status = 'confirmed';
-            booking.updatedAt = new Date();
-
-            await booking.save();
-
-            // Send notifications
-            try {
-                // Notify user
-                const userNotification = {
-                    userId: booking.userId._id,
-                    title: "Booking Confirmed",
-                    message: `Your booking with ${booking.stylistId.stylistName} has been confirmed.`,
-                    type: "booking_confirmed",
-                    data: {
-                        bookingId: booking._id,
-                        stylistName: booking.stylistId.stylistName,
-                        scheduledDate: booking.scheduledDate,
-                        scheduledTime: booking.scheduledTime
-                    }
-                };
-
-                await createNotification(userNotification);
-                await sendFcmNotification(userNotification);
-
-                // Notify stylist
-                const stylistNotification = {
-                    userId: booking.stylistId.userId,
-                    title: "New Booking Received",
-                    message: `You have a new booking from ${booking.userId.displayName}.`,
-                    type: "new_booking_received",
-                    data: {
-                        bookingId: booking._id,
-                        userName: booking.userId.displayName,
-                        scheduledDate: booking.scheduledDate,
-                        scheduledTime: booking.scheduledTime
-                    }
-                };
-
-                await createNotification(stylistNotification);
-                await sendFcmNotification(stylistNotification);
-
-            } catch (notificationError) {
-                console.error("Notification error:", notificationError);
-            }
-
+          }
+      
+          // 2️⃣ Ownership check (user or stylist)
+          const isUser = booking.userId._id.toString() === userId.toString();
+          const isStylist = booking.stylistId.userId.toString() === userId.toString();
+      
+          if (!isUser && !isStylist) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(403).json({
+              success: false,
+              message: "Unauthorized"
+            });
+          }
+      
+          // 3️⃣ Guard: don’t override real paid bookings
+          if (booking.paymentStatus === "completed") {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+              success: false,
+              message: "Paid booking already exists. Test session not allowed."
+            });
+          }
+      
+          // 4️⃣ Idempotency
+          if (booking.videoCallStatus === "scheduled") {
+            await session.commitTransaction();
+            session.endSession();
             return res.status(200).json({
-                success: true,
-                message: "Payment completed successfully. Booking confirmed.",
-                data: {
-                    bookingId: booking._id,
-                    paymentStatus: 'completed',
-                    bookingStatus: 'confirmed',
-                    paymentId: razorpay_payment_id
-                }
+              success: true,
+              message: "Session already scheduled",
+              data: {
+                channelName: booking.agoraChannelName,
+                sessionScheduledAt: booking.sessionScheduledAt,
+                sessionEndsAt: booking.sessionEndsAt
+              }
             });
-
+          }
+      
+          // 5️⃣ Schedule session
+          const scheduledStart = booking.scheduledDateTime;
+          const scheduledEnd = new Date(
+            scheduledStart.getTime() + booking.duration * 60000
+          );
+      
+          booking.isTestBooking = true;
+          booking.status = "confirmed";
+          booking.paymentStatus = "test";
+          booking.videoCallStatus = "scheduled";
+          booking.sessionScheduledAt = scheduledStart;
+          booking.sessionEndsAt = scheduledEnd;
+          booking.agoraChannelName = AgoraService.generateChannelName(
+            booking.bookingId
+          );
+          booking.updatedAt = new Date();
+      
+          await booking.save({ session });
+      
+          await session.commitTransaction();
+          session.endSession();
+      
+          return res.status(200).json({
+            success: true,
+            message: "Test Agora session created successfully",
+            data: {
+              bookingId: booking._id,
+              channelName: booking.agoraChannelName,
+              sessionScheduledAt: booking.sessionScheduledAt,
+              sessionEndsAt: booking.sessionEndsAt,
+              isTestBooking: true
+            }
+          });
+      
         } catch (error) {
-            console.error("Payment callback error:", error);
-            return res.status(500).json({
-                success: false,
-                message: "Failed to process payment callback",
-                error: error.message
-            });
+          await session.abortTransaction();
+          session.endSession();
+      
+          console.error("Test Agora session error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to create test Agora session",
+            error: error.message
+          });
         }
-    }
+      }
+      
+
+ 
+    static async handlePaymentCallback(req, res) {
+        const session = await mongoose.startSession();
+        session.startTransaction();
+      
+        try {
+          const {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature
+          } = req.body;
+      
+          // 1️⃣ Verify Razorpay signature
+          const isValidSignature = RazorpayService.verifyPaymentSignature({
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature
+          });
+      
+          if (!isValidSignature) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+              success: false,
+              message: "Invalid payment signature"
+            });
+          }
+      
+          // 2️⃣ Find booking
+          const booking = await StylistBooking.findOne({
+            razorpayOrderId: razorpay_order_id
+          })
+            .populate("stylistId userId")
+            .session(session);
+      
+          if (!booking) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({
+              success: false,
+              message: "Booking not found for this payment"
+            });
+          }
+      
+          // 3️⃣ Idempotency guard (MOST IMPORTANT)
+          if (booking.paymentStatus === "completed") {
+            await session.commitTransaction();
+            session.endSession();
+            return res.status(200).json({
+              success: true,
+              message: "Payment already processed",
+              data: {
+                bookingId: booking._id,
+                bookingStatus: booking.status,
+                paymentStatus: booking.paymentStatus
+              }
+            });
+          }
+      
+          // 4️⃣ Prevent confirming invalid bookings
+          if (booking.isCancelled || booking.status === "cancelled") {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({
+              success: false,
+              message: "Booking is cancelled. Payment cannot be applied."
+            });
+          }
+      
+          // 5️⃣ Update payment info
+          booking.razorpayPaymentId = razorpay_payment_id;
+          booking.razorpaySignature = razorpay_signature;
+          booking.paymentStatus = "completed";
+          booking.paymentCompletedAt = new Date();
+          booking.status = "confirmed";
+          booking.updatedAt = new Date();
+      
+          // 6️⃣ Schedule session ONLY IF NOT ALREADY SCHEDULED
+          if (!booking.agoraChannelName) {
+            const scheduledStart = booking.scheduledDateTime;
+            const scheduledEnd = new Date(
+              scheduledStart.getTime() + booking.duration * 60000
+            );
+      
+            const channelName = AgoraService.generateChannelName(
+              booking.bookingId // BOOK_xxx
+            );
+      
+            booking.agoraChannelName = channelName;
+            booking.videoCallStatus = "scheduled";
+            booking.sessionScheduledAt = scheduledStart;
+            booking.sessionEndsAt = scheduledEnd;
+          }
+      
+          await booking.save({ session });
+      
+          await session.commitTransaction();
+          session.endSession();
+      
+          // 7️⃣ Notifications (OUTSIDE transaction)
+          try {
+            await createNotification({
+              userId: booking.userId._id,
+              title: "Booking Confirmed",
+              message: `Your booking with ${booking.stylistId.stylistName} has been confirmed.`,
+              type: "booking_confirmed",
+              data: {
+                bookingId: booking._id,
+                scheduledDate: booking.scheduledDate,
+                scheduledTime: booking.scheduledTime
+              }
+            });
+      
+            await sendFcmNotification({
+              userId: booking.userId._id,
+              title: "Booking Confirmed",
+              message: `Your booking with ${booking.stylistId.stylistName} has been confirmed.`,
+              type: "booking_confirmed"
+            });
+      
+            await createNotification({
+              userId: booking.stylistId.userId,
+              title: "New Booking Received",
+              message: `You have a new booking from ${booking.userId.displayName}.`,
+              type: "new_booking_received",
+              data: {
+                bookingId: booking._id
+              }
+            });
+      
+            await sendFcmNotification({
+              userId: booking.stylistId.userId,
+              title: "New Booking Received",
+              message: `You have a new booking from ${booking.userId.displayName}.`,
+              type: "new_booking_received"
+            });
+      
+          } catch (notificationError) {
+            console.error("Notification error:", notificationError);
+          }
+      
+          return res.status(200).json({
+            success: true,
+            message: "Payment completed successfully. Booking confirmed.",
+            data: {
+              bookingId: booking._id,
+              bookingStatus: booking.status,
+              paymentStatus: booking.paymentStatus,
+              sessionScheduledAt: booking.sessionScheduledAt,
+              sessionEndsAt: booking.sessionEndsAt
+            }
+          });
+      
+        } catch (error) {
+          await session.abortTransaction();
+          session.endSession();
+      
+          console.error("Payment callback error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to process payment callback",
+            error: error.message
+          });
+        }
+      }
+      
 
     /**
      * Get user's bookings
