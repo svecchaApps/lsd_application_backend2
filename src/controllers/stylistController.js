@@ -768,7 +768,8 @@ exports.searchStylists = async (req, res) => {
 
         // Text search across multiple fields
         if (q && q.trim() !== '') {
-            const searchRegex = { $regex: q.trim(), $options: 'i' };
+            const searchText = q.trim();
+            const searchRegex = { $regex: searchText, $options: 'i' };
             query.$or = [
                 { stylistName: searchRegex },
                 { stylistBio: searchRegex },
@@ -776,7 +777,7 @@ exports.searchStylists = async (req, res) => {
                 { stylistState: searchRegex },
                 { stylistExperience: searchRegex },
                 { stylistEducation: searchRegex },
-                { stylistSkills: { $in: [searchRegex] } }
+                { stylistSkills: searchRegex }
             ];
         }
 
