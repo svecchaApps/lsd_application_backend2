@@ -739,6 +739,122 @@ exports.getApprovedStylistProfiles = async (req, res) => {
     }
 };
 
+// Search stylists (Public)
+exports.searchStylists = async (req, res) => {
+    try {
+        const {
+            q = '', // Search query text
+            page = 1,
+            limit = 10,
+            city = '',
+            state = '',
+            minRating = 0,
+            maxPrice = null,
+            category = '',
+            categoryId = '',
+            sortBy = 'stylistRating',
+            sortOrder = 'desc'
+        } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build query for approved profiles only
+        let query = {
+            isApproved: true,
+            approvalStatus: 'approved',
+            applicationStatus: 'approved',
+            'bookingSettings.isAvailableForBooking': true
+        };
+
+        // Text search across multiple fields
+        if (q && q.trim() !== '') {
+            const searchRegex = { $regex: q.trim(), $options: 'i' };
+            query.$or = [
+                { stylistName: searchRegex },
+                { stylistBio: searchRegex },
+                { stylistCity: searchRegex },
+                { stylistState: searchRegex },
+                { stylistExperience: searchRegex },
+                { stylistEducation: searchRegex },
+                { stylistSkills: { $in: [searchRegex] } }
+            ];
+        }
+
+        // Filter by location (more specific than search)
+        if (city) {
+            query.stylistCity = { $regex: city, $options: 'i' };
+        }
+
+        if (state) {
+            query.stylistState = { $regex: state, $options: 'i' };
+        }
+
+        // Filter by rating
+        if (minRating > 0) {
+            query.stylistRating = { $gte: parseFloat(minRating) };
+        }
+
+        // Filter by price
+        if (maxPrice !== null && maxPrice !== '') {
+            query.stylistPrice = { $lte: parseFloat(maxPrice) };
+        }
+
+        // Filter by category
+        if (categoryId) {
+            if (mongoose.Types.ObjectId.isValid(categoryId)) {
+                query.stylistCategories = { $in: [new mongoose.Types.ObjectId(categoryId)] };
+            }
+        } else if (category) {
+            // Find category by name
+            const categoryDoc = await StylistCategory.findOne({ 
+                name: { $regex: category, $options: 'i' },
+                isActive: true
+            });
+            if (categoryDoc) {
+                query.stylistCategories = { $in: [categoryDoc._id] };
+            }
+        }
+
+        // Build sort object
+        const sort = {};
+        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+        const stylistProfiles = await StylistProfile.find(query)
+            .populate('userId', 'displayName email phoneNumber profilePicture')
+            .populate('stylistCategories', 'name description image icon')
+            .sort(sort)
+            .skip(skip)
+            .limit(parseInt(limit));
+
+        const totalProfiles = await StylistProfile.countDocuments(query);
+
+        return res.status(200).json({
+            success: true,
+            message: "Stylists searched successfully",
+            data: {
+                stylists: stylistProfiles,
+                searchQuery: q,
+                pagination: {
+                    currentPage: parseInt(page),
+                    totalPages: Math.ceil(totalProfiles / parseInt(limit)),
+                    totalStylists: totalProfiles,
+                    limit: parseInt(limit),
+                    hasNextPage: skip + stylistProfiles.length < totalProfiles,
+                    hasPrevPage: parseInt(page) > 1
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error searching stylists:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error searching stylists",
+            error: error.message
+        });
+    }
+};
+
 // Approve stylist profile (Admin only)
 exports.approveStylistProfile = async (req, res) => {
     try {
