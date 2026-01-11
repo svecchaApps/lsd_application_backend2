@@ -147,13 +147,7 @@ const {
         const start = booking.scheduledDateTime;
         const end = new Date(start.getTime() + booking.duration * 60000);
   
-        if (now < start) {
-          throw new Error("Session has not started yet");
-        }
-  
-        if (now > end) {
-          throw new Error("Session has already ended");
-        }
+      
   
         const expiresAt = Math.floor(end.getTime() / 1000);
   
