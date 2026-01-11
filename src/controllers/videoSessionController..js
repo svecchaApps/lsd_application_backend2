@@ -55,14 +55,43 @@ exports.joinSession = async (req, res) => {
           message: "Session not active"
         });
       }
-  
+
+      // Validate required booking fields
+      if (!booking.bookingId) {
+        return res.status(400).json({
+          success: false,
+          message: "Booking ID is missing"
+        });
+      }
+
+      if (!booking.scheduledDate || !booking.scheduledTime) {
+        return res.status(400).json({
+          success: false,
+          message: "Booking schedule information is incomplete"
+        });
+      }
+
+      if (!booking.duration || typeof booking.duration !== 'number') {
+        return res.status(400).json({
+          success: false,
+          message: "Booking duration is invalid"
+        });
+      }
+
       // ⏱ Correct time handling
       const now = new Date();
       const start = booking.scheduledDateTime;
+      
+      // Validate scheduledDateTime virtual field
+      if (!start || isNaN(start.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid booking scheduled date/time"
+        });
+      }
+
       const end = new Date(start.getTime() + booking.duration * 60000);
-  
-    
-  
+
       // 🎥 Generate Agora tokens
       const tokenResult = AgoraService.generateBookingSessionTokens({
         booking,

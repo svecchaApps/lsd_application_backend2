@@ -670,25 +670,71 @@ class StylistBookingController {
 
     /**
      * Get user's bookings
+     * Accepts userId as query parameter for reliability
      */
     static async getUserBookings(req, res) {
         try {
-            const userId = req.user._id;
-            const { page = 1, limit = 10, status } = req.query;
+            const { userId, page = 1, limit = 10, status } = req.query;
 
-            const skip = (parseInt(page) - 1) * parseInt(limit);
-
-            let query = { userId };
-            if (status) {
-                query.status = status;
+            // Validate userId is provided
+            if (!userId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "userId is required as query parameter"
+                });
             }
 
+            // Validate ObjectId format
+            if (!mongoose.Types.ObjectId.isValid(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid userId format"
+                });
+            }
+
+            // Validate and parse pagination parameters
+            const pageNum = parseInt(page);
+            const limitNum = parseInt(limit);
+
+            if (isNaN(pageNum) || pageNum < 1) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid page number. Must be a positive integer"
+                });
+            }
+
+            if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid limit. Must be between 1 and 100"
+                });
+            }
+
+            const skip = (pageNum - 1) * limitNum;
+
+            // Build query
+            let query = { userId: new mongoose.Types.ObjectId(userId) };
+            if (status) {
+                const validStatuses = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show'];
+                if (validStatuses.includes(status)) {
+                    query.status = status;
+                } else {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+                    });
+                }
+            }
+
+            // Fetch bookings with populated fields
             const bookings = await StylistBooking.find(query)
-                .populate('stylistId', 'stylistName stylistImage stylistBio')
+                .populate('userId', 'displayName email phoneNumber _id')
+                .populate('stylistId', 'stylistName stylistImage stylistBio stylistPhone stylistEmail stylistCity stylistState _id')
                 .sort({ createdAt: -1 })
                 .skip(skip)
-                .limit(parseInt(limit));
+                .limit(limitNum);
 
+            // Get total count for pagination
             const totalBookings = await StylistBooking.countDocuments(query);
 
             return res.status(200).json({
@@ -697,11 +743,12 @@ class StylistBookingController {
                 data: {
                     bookings,
                     pagination: {
-                        currentPage: parseInt(page),
-                        totalPages: Math.ceil(totalBookings / parseInt(limit)),
+                        currentPage: pageNum,
+                        totalPages: Math.ceil(totalBookings / limitNum),
                         totalBookings,
+                        limit: limitNum,
                         hasNextPage: skip + bookings.length < totalBookings,
-                        hasPrevPage: parseInt(page) > 1
+                        hasPrevPage: pageNum > 1
                     }
                 }
             });
