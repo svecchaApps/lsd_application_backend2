@@ -266,6 +266,10 @@ class RazorpayBookingController {
 
             await booking.save();
 
+            // Chat is now handled through Agora Chat SDK (RTM)
+            // Users can get RTM tokens via /booking-chat/booking/:bookingId/rtm-config
+            // Messages are sent/received through Agora's infrastructure (client-side)
+
             // Send notifications
             try {
                 // Notify user
