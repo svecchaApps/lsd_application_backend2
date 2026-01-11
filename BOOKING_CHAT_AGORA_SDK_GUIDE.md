@@ -12,6 +12,7 @@ Chat functionality for booking sessions is implemented using **Agora Chat SDK (R
 - ✅ No message storage in database - all handled by Agora
 - ✅ Real-time messaging with low latency
 - ✅ Chat available only for active bookings (confirmed/in_progress)
+- ✅ **Same RTM token can be used for both video session and chat** (no need for separate tokens)
 
 ---
 
@@ -433,21 +434,39 @@ await chatService.logout();
 
 ## Integration with Video Session
 
-The same endpoint (`POST /booking-video/bookings/:bookingId/join-session`) that provides video tokens also provides RTM tokens. You can use both for video calls and chat simultaneously:
+### Using Same RTM Token for Video and Chat
+
+**Important**: You **DO NOT need separate RTM tokens** for video and chat. The same RTM token can be used for both!
+
+The `joinSession` endpoint (`POST /booking-video/bookings/:bookingId/join-session`) already provides RTM tokens along with RTC tokens. You can use the same RTM token for chat:
 
 ```javascript
-// Get video + chat tokens together
+// Get video + chat tokens together from joinSession endpoint
 const session = await fetch(`/booking-video/bookings/${bookingId}/join-session`, {
   method: 'POST',
   body: JSON.stringify({ userId, role: 'user' })
 });
 
-const { rtcToken, rtmToken, channelName, rtcUid, rtmUid } = session.data;
+const { rtcToken, rtmToken, channelName, rtcUid, rtmUid, appId } = session.data.data;
 
-// Use rtcToken for video
-// Use rtmToken for chat
-// Use channelName for both video and chat
+// Use rtcToken for video calls
+await videoClient.join(channelName, rtcToken, rtcUid);
+
+// Use the SAME rtmToken for chat (no need for separate token!)
+await rtmClient.login(rtmToken, rtmUid);
+await rtmChannel.join(channelName);
+
+// Use the same channelName for both video and chat
 ```
+
+### When to Use `/rtm-config` Endpoint
+
+The `/booking-chat/booking/:bookingId/rtm-config` endpoint is useful when:
+- You only need chat (not video) for a booking
+- You want to get chat configuration separately
+- You need to refresh tokens without joining the video session
+
+But for most cases, **use the RTM token from `/join-session` endpoint** - it's more efficient!
 
 ---
 

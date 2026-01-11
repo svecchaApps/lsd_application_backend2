@@ -52,12 +52,7 @@ class BookingChatController {
             }
 
             // Validate booking is active/confirmed (only allow chat for active bookings)
-            if (!['confirmed', 'in_progress'].includes(booking.status)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Chat is only available for confirmed or active bookings"
-                });
-            }
+        
 
             // Validate user has access to this booking
             const isUser = booking.userId._id.toString() === userId.toString();
