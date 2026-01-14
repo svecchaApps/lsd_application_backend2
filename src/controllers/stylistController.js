@@ -1183,7 +1183,7 @@ exports.getStylistCategories = async (req, res) => {
     }
 };
 
-// Get stylists by category
+// Get stylists by category with filters
 exports.getStylistsByCategory = async (req, res) => {
     try {
         const { categoryId } = req.params;
@@ -1193,6 +1193,7 @@ exports.getStylistsByCategory = async (req, res) => {
             city = '',
             state = '',
             minRating = 0,
+            minPrice = null,
             maxPrice = null,
             sortBy = 'stylistRating',
             sortOrder = 'desc'
@@ -1203,6 +1204,24 @@ exports.getStylistsByCategory = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: "Invalid category ID format"
+            });
+        }
+
+        // Validate and parse pagination parameters
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+
+        if (isNaN(pageNum) || pageNum < 1) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid page number. Must be a positive integer"
+            });
+        }
+
+        if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid limit. Must be between 1 and 100"
             });
         }
 
@@ -1219,7 +1238,7 @@ exports.getStylistsByCategory = async (req, res) => {
             });
         }
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
 
         // Build query
         let query = {
@@ -1231,34 +1250,57 @@ exports.getStylistsByCategory = async (req, res) => {
         };
 
         // Filter by location
-        if (city) {
-            query.stylistCity = { $regex: city, $options: 'i' };
+        if (city && city.trim() !== '') {
+            query.stylistCity = { $regex: city.trim(), $options: 'i' };
         }
 
-        if (state) {
-            query.stylistState = { $regex: state, $options: 'i' };
+        if (state && state.trim() !== '') {
+            query.stylistState = { $regex: state.trim(), $options: 'i' };
         }
 
         // Filter by rating
         if (minRating > 0) {
-            query.stylistRating = { $gte: parseFloat(minRating) };
+            const ratingValue = parseFloat(minRating);
+            if (!isNaN(ratingValue) && ratingValue >= 0 && ratingValue <= 5) {
+                query.stylistRating = { $gte: ratingValue };
+            }
         }
 
-        // Filter by price
-        if (maxPrice !== null && maxPrice !== '') {
-            query.stylistPrice = { $lte: parseFloat(maxPrice) };
+        // Filter by price range (minPrice and maxPrice)
+        const priceFilters = {};
+        if (minPrice !== null && minPrice !== '' && minPrice !== undefined) {
+            const minPriceValue = parseFloat(minPrice);
+            if (!isNaN(minPriceValue) && minPriceValue >= 0) {
+                priceFilters.$gte = minPriceValue;
+            }
         }
+
+        if (maxPrice !== null && maxPrice !== '' && maxPrice !== undefined) {
+            const maxPriceValue = parseFloat(maxPrice);
+            if (!isNaN(maxPriceValue) && maxPriceValue >= 0) {
+                priceFilters.$lte = maxPriceValue;
+            }
+        }
+
+        if (Object.keys(priceFilters).length > 0) {
+            query.stylistPrice = priceFilters;
+        }
+
+        // Validate sortBy field
+        const validSortFields = ['stylistRating', 'stylistPrice', 'stylistName', 'createdAt'];
+        const sortField = validSortFields.includes(sortBy) ? sortBy : 'stylistRating';
+        const sortDirection = sortOrder === 'asc' ? 1 : -1;
 
         // Build sort object
         const sort = {};
-        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+        sort[sortField] = sortDirection;
 
         const stylistProfiles = await StylistProfile.find(query)
             .populate('userId', 'displayName email phoneNumber profilePicture')
             .populate('stylistCategories', 'name description image icon')
             .sort(sort)
             .skip(skip)
-            .limit(parseInt(limit));
+            .limit(limitNum);
 
         const totalProfiles = await StylistProfile.countDocuments(query);
 
@@ -1273,13 +1315,23 @@ exports.getStylistsByCategory = async (req, res) => {
                     image: category.image,
                     icon: category.icon
                 },
-                stylistProfiles,
+                stylists: stylistProfiles,
+                filters: {
+                    city: city || null,
+                    state: state || null,
+                    minRating: minRating || null,
+                    minPrice: minPrice || null,
+                    maxPrice: maxPrice || null,
+                    sortBy: sortField,
+                    sortOrder: sortOrder
+                },
                 pagination: {
-                    currentPage: parseInt(page),
-                    totalPages: Math.ceil(totalProfiles / parseInt(limit)),
-                    totalProfiles,
+                    currentPage: pageNum,
+                    totalPages: Math.ceil(totalProfiles / limitNum),
+                    totalStylists: totalProfiles,
+                    limit: limitNum,
                     hasNextPage: skip + stylistProfiles.length < totalProfiles,
-                    hasPrevPage: parseInt(page) > 1
+                    hasPrevPage: pageNum > 1
                 }
             }
         });
