@@ -72,4 +72,22 @@ router.post(
   userController.createUserStylistAccount
 );
 
+// Get user profile (for stylist app)
+router.get(
+  "/profile/:userId",
+  userController.getUserProfile
+);
+
+// Update user profile (for stylist app)
+router.put(
+  "/profile/:userId",
+  userController.updateUserProfile
+);
+
+// Get payment history (for both user and stylist roles)
+router.get(
+  "/payment-history/:userId",
+  userController.getPaymentHistory
+);
+
 module.exports = router;

@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 const User = require("../models/userModel");
 const Designer = require("../models/designerModel");
 const UserStylist = require("../models/stylistUser");
+const StylistBooking = require("../models/stylistBooking");
+const StylistProfile = require("../models/stylistProfile");
+const PaymentDetails = require("../models/paymentDetailsModel");
 const { bucket } = require("../service/firebaseServices");
 const { admin } = require("../service/firebaseServices");
 const bcrypt = require("bcrypt");
@@ -1350,6 +1353,389 @@ exports.createUserStylistAccount = async (req, res) => {
       success: false,
       message: "Internal Server Error",
       error: error.message,
+    });
+  }
+};
+
+// Get user profile (for stylist app)
+exports.getUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required"
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid userId format"
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId)
+      .select('-password -firebaseUid');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Check if user is a stylist
+    const stylistProfile = await StylistProfile.findOne({ userId: user._id })
+      .select('stylistName stylistImage stylistEmail stylistPhone stylistBio isApproved approvalStatus');
+
+    return res.status(200).json({
+      success: true,
+      message: "User profile retrieved successfully",
+      data: {
+        user: {
+          _id: user._id,
+          displayName: user.displayName,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          role: user.role,
+          is_creator: user.is_creator,
+          address: user.address,
+          recentlyViewedProducts: user.recentlyViewedProducts,
+          createdAt: user.createdTime,
+          lastLoggedIn: user.last_logged_in
+        },
+        stylistProfile: stylistProfile || null
+      }
+    });
+
+  } catch (error) {
+    console.error("Get user profile error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get user profile",
+      error: error.message
+    });
+  }
+};
+
+// Update user profile (for stylist app)
+exports.updateUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { displayName, email, phoneNumber, address } = req.body;
+
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required"
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid userId format"
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Update fields if provided
+    if (displayName !== undefined && displayName !== null) {
+      user.displayName = displayName;
+    }
+
+    if (email !== undefined && email !== null) {
+      // Check if email is already taken by another user
+      const existingUser = await User.findOne({ 
+        email: email, 
+        _id: { $ne: userId } 
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Email is already taken by another user"
+        });
+      }
+      
+      user.email = email;
+    }
+
+    if (phoneNumber !== undefined && phoneNumber !== null) {
+      // Check if phone number is already taken by another user
+      const existingUser = await User.findOne({ 
+        phoneNumber: phoneNumber, 
+        _id: { $ne: userId } 
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number is already taken by another user"
+        });
+      }
+      
+      user.phoneNumber = phoneNumber;
+    }
+
+    if (address !== undefined && address !== null) {
+      // If address is an array, replace it
+      if (Array.isArray(address)) {
+        user.address = address;
+      } else if (typeof address === 'object') {
+        // If it's a single address object, add it to the array
+        user.address = user.address || [];
+        user.address.push(address);
+      }
+    }
+
+    await user.save();
+
+    // Return updated user data
+    const userResponse = {
+      _id: user._id,
+      displayName: user.displayName,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      is_creator: user.is_creator,
+      address: user.address,
+      recentlyViewedProducts: user.recentlyViewedProducts,
+      createdAt: user.createdTime,
+      lastLoggedIn: user.last_logged_in
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "User profile updated successfully",
+      data: {
+        user: userResponse
+      }
+    });
+
+  } catch (error) {
+    console.error("Update user profile error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update user profile",
+      error: error.message
+    });
+  }
+};
+
+// Get payment history (for both user and stylist roles)
+exports.getPaymentHistory = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20, paymentType = 'all' } = req.query;
+
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required"
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid userId format"
+      });
+    }
+
+    // Validate pagination
+    const pageNum = parseInt(page);
+    const limitNum = Math.min(parseInt(limit), 100);
+
+    if (isNaN(pageNum) || pageNum < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid page number. Must be a positive integer"
+      });
+    }
+
+    if (isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid limit. Must be a positive integer"
+      });
+    }
+
+    const skip = (pageNum - 1) * limitNum;
+
+    // Check user role
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const isStylist = user.role === 'Stylist';
+    const allPayments = [];
+
+    // Get stylist booking payments (if user is stylist or if paymentType includes bookings)
+    if (paymentType === 'all' || paymentType === 'booking') {
+      let bookingQuery = {};
+      
+      if (isStylist) {
+        // For stylists, get bookings where they are the stylist
+        const stylistProfile = await StylistProfile.findOne({ userId: userId });
+        if (stylistProfile) {
+          bookingQuery.stylistId = stylistProfile._id;
+        }
+      } else {
+        // For regular users, get their bookings
+        bookingQuery.userId = userId;
+      }
+
+      // Only get completed payments
+      bookingQuery.paymentStatus = { $in: ['completed', 'test'] };
+
+      // Get all bookings first (no pagination yet)
+      const bookings = await StylistBooking.find(bookingQuery)
+        .populate('userId', 'displayName email phoneNumber')
+        .populate('stylistId', 'stylistName stylistEmail stylistPhone')
+        .sort({ paymentCompletedAt: -1, createdAt: -1 });
+
+      // Format booking payments
+      bookings.forEach(booking => {
+        allPayments.push({
+          paymentId: booking._id,
+          transactionId: booking.razorpayPaymentId || booking.razorpayOrderId,
+          type: 'booking',
+          amount: booking.paymentAmount,
+          currency: booking.paymentCurrency || 'INR',
+          paymentMethod: booking.paymentMethod || 'razorpay',
+          paymentStatus: booking.paymentStatus,
+          status: booking.status,
+          description: `Booking: ${booking.bookingTitle}`,
+          bookingDetails: {
+            bookingId: booking._id,
+            bookingIdString: booking.bookingId,
+            bookingTitle: booking.bookingTitle,
+            bookingType: booking.bookingType,
+            scheduledDate: booking.scheduledDate,
+            scheduledTime: booking.scheduledTime,
+            duration: booking.duration
+          },
+          participant: isStylist ? booking.userId : booking.stylistId,
+          createdAt: booking.paymentCompletedAt || booking.createdAt,
+          completedAt: booking.paymentCompletedAt
+        });
+      });
+    }
+
+    // Get regular order payments (if paymentType includes orders)
+    if (paymentType === 'all' || paymentType === 'order') {
+      // Get all order payments first (no pagination yet)
+      const orderPayments = await PaymentDetails.find({ userId: userId })
+        .populate('cartId', 'total_amount')
+        .sort({ completedAt: -1, createdDate: -1 });
+
+      // Format order payments
+      orderPayments.forEach(payment => {
+        allPayments.push({
+          paymentId: payment._id,
+          transactionId: payment.transactionId,
+          type: 'order',
+          amount: payment.amount,
+          currency: payment.currency || 'INR',
+          paymentMethod: payment.paymentMethod,
+          paymentStatus: payment.paymentStatus,
+          status: payment.status,
+          description: payment.description || `Order payment: ${payment.orderId || payment.transactionId}`,
+          orderDetails: {
+            orderId: payment.orderId,
+            paymentReferenceId: payment.paymentReferenceId,
+            cartId: payment.cartId?._id,
+            totalAmount: payment.cartId?.total_amount
+          },
+          customerDetails: payment.customerDetails,
+          createdAt: payment.createdDate,
+          completedAt: payment.completedAt
+        });
+      });
+    }
+
+    // Sort all payments by date (most recent first)
+    allPayments.sort((a, b) => {
+      const dateA = a.completedAt || a.createdAt;
+      const dateB = b.completedAt || b.createdAt;
+      return new Date(dateB) - new Date(dateA);
+    });
+
+    // Apply pagination to combined results
+    const paginatedPayments = allPayments.slice(skip, skip + limitNum);
+
+    // Get total counts
+    let totalBookings = 0;
+    let totalOrders = 0;
+
+    if (paymentType === 'all' || paymentType === 'booking') {
+      let bookingCountQuery = {};
+      if (isStylist) {
+        const stylistProfile = await StylistProfile.findOne({ userId: userId });
+        if (stylistProfile) {
+          bookingCountQuery.stylistId = stylistProfile._id;
+        }
+      } else {
+        bookingCountQuery.userId = userId;
+      }
+      bookingCountQuery.paymentStatus = { $in: ['completed', 'test'] };
+      totalBookings = await StylistBooking.countDocuments(bookingCountQuery);
+    }
+
+    if (paymentType === 'all' || paymentType === 'order') {
+      totalOrders = await PaymentDetails.countDocuments({ userId: userId });
+    }
+
+    const totalPayments = totalBookings + totalOrders;
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment history retrieved successfully",
+      data: {
+        payments: paginatedPayments,
+        summary: {
+          totalPayments,
+          totalBookings,
+          totalOrders,
+          totalAmount: allPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0)
+        },
+        pagination: {
+          currentPage: pageNum,
+          totalPages: Math.ceil(totalPayments / limitNum),
+          totalPayments,
+          limit: limitNum,
+          hasNextPage: skip + paginatedPayments.length < totalPayments,
+          hasPrevPage: pageNum > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Get payment history error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get payment history",
+      error: error.message
     });
   }
 };
