@@ -9,10 +9,22 @@ const {
   getLatestBroadcastNotification,
   getAllBroadcastNotifications,
   sendNotificationToAllUsers,
+  getUserNotifications,
+  getUnreadCount,
+  markNotificationsRead,
 } = require("../controllers/notificationController");
 const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
 
 router.put("/update-fcm-token", updateFcmToken);
+
+// User notifications inbox (stylist app)
+router.get("/user/:userId", getUserNotifications);
+
+// Unread badge count
+router.get("/user/:userId/unread-count", getUnreadCount);
+
+// Mark notifications as read
+router.patch("/user/:userId/mark-read", markNotificationsRead);
 
 router.post("/create-order-notification", createOrderNotification);
 router.get("/broadcast/latest", getLatestBroadcastNotification);

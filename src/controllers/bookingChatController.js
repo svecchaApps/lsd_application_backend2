@@ -51,8 +51,19 @@ class BookingChatController {
                 });
             }
 
-            // Validate booking is active/confirmed (only allow chat for active bookings)
-        
+            if (!["completed", "test"].includes(booking.paymentStatus)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Chat is only available after payment is completed"
+                });
+            }
+
+            if (!["confirmed", "in_progress"].includes(booking.status)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Chat is only available for confirmed or active bookings"
+                });
+            }
 
             // Validate user has access to this booking
             const isUser = booking.userId._id.toString() === userId.toString();
@@ -86,14 +97,33 @@ class BookingChatController {
 
             return res.status(200).json({
                 success: true,
-                message: "RTM configuration retrieved successfully",
+                message:
+                    "RTM configuration retrieved. Join the same channelName with video join-session for live RTC + chat.",
                 data: {
                     appId: tokenResult.data.appId,
                     rtmToken: tokenResult.data.rtmToken,
                     rtmUid: tokenResult.data.rtmUid,
                     channelName: chatChannelName,
+                    rtcUid: tokenResult.data.rtcUid,
+                    rtcToken: tokenResult.data.rtcToken,
                     expiresAt: tokenResult.data.expiresAt,
                     expiresIn: tokenResult.data.expiresIn,
+                    connection: {
+                        sameChannelForVideoAndChat: true,
+                        channelName: chatChannelName,
+                        video: {
+                            appId: tokenResult.data.appId,
+                            channelName: chatChannelName,
+                            token: tokenResult.data.rtcToken,
+                            uid: tokenResult.data.rtcUid
+                        },
+                        chat: {
+                            appId: tokenResult.data.appId,
+                            channelName: chatChannelName,
+                            token: tokenResult.data.rtmToken,
+                            uid: tokenResult.data.rtmUid
+                        }
+                    },
                     booking: {
                         bookingId: booking._id,
                         bookingIdString: booking.bookingId,
@@ -268,6 +298,13 @@ class BookingChatController {
                 });
             }
 
+            if (!["completed", "test"].includes(booking.paymentStatus)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Cannot refresh token. Payment not completed"
+                });
+            }
+
             // Generate new RTM token
             const tokenResult = AgoraService.generateBookingSessionTokens({
                 booking,
@@ -283,14 +320,36 @@ class BookingChatController {
                 });
             }
 
+            const ch = AgoraService.generateChannelName(booking.bookingId);
+
             return res.status(200).json({
                 success: true,
                 message: "RTM token refreshed successfully",
                 data: {
+                    appId: tokenResult.data.appId,
+                    channelName: ch,
                     rtmToken: tokenResult.data.rtmToken,
                     rtmUid: tokenResult.data.rtmUid,
+                    rtcToken: tokenResult.data.rtcToken,
+                    rtcUid: tokenResult.data.rtcUid,
                     expiresAt: tokenResult.data.expiresAt,
-                    expiresIn: tokenResult.data.expiresIn
+                    expiresIn: tokenResult.data.expiresIn,
+                    connection: {
+                        sameChannelForVideoAndChat: true,
+                        channelName: ch,
+                        video: {
+                            appId: tokenResult.data.appId,
+                            channelName: ch,
+                            token: tokenResult.data.rtcToken,
+                            uid: tokenResult.data.rtcUid
+                        },
+                        chat: {
+                            appId: tokenResult.data.appId,
+                            channelName: ch,
+                            token: tokenResult.data.rtmToken,
+                            uid: tokenResult.data.rtmUid
+                        }
+                    }
                 }
             });
 

@@ -1,5 +1,7 @@
 # Booking Chat Implementation with Agora Chat SDK (RTM)
 
+**Client integration (endpoints, `connection` object, participant rules):** see **`AGORA_VIDEO_CHAT_CLIENT_INTEGRATION.md`**.
+
 This guide explains how chat functionality is implemented using Agora Chat SDK (RTM - Real-Time Messaging) for booking sessions.
 
 ## Overview

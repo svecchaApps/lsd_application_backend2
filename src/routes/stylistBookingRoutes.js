@@ -95,6 +95,13 @@ router.post(
     stylistBookingController.cancelBooking
 );
 
+// Submit review / rating for a completed booking (user only)
+router.post(
+    "/:bookingId/review",
+    authMiddleware,
+    stylistBookingController.submitReview
+);
+
 // Stylist routes (authentication + stylist role required)
 router.get(
     "/stylist-bookings",

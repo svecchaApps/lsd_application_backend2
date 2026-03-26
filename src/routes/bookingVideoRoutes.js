@@ -5,7 +5,7 @@ const {
   joinSession,
   endSession,
   getSessionStatus
-} = require("../controllers/videoSessionController.");
+} = require("../controllers/videoSessionController");
 
 const authenticate = require("../middleware/authMiddleware");
 

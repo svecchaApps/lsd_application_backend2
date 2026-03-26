@@ -29,6 +29,7 @@ router.get(
 
 router.get(
     "/category/:categoryId",
+    
     stylistController.getStylistsByCategory
 );
 

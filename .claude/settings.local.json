@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for f:*)",
+      "Bash(do basename:*)",
+      "Bash(done)",
+      "Bash(wc -l /c/Users/offic/Onedrive/Desktop/lsdauth/src/controllers/*.js)"
+    ]
+  }
+}

@@ -78,6 +78,13 @@ const userSchema = new mongoose.Schema({
       },
     },
   ],
+  notificationPreferences: {
+    bookingConfirmations: { type: Boolean, default: true },
+    sessionReminders: { type: Boolean, default: true },
+    cancellations: { type: Boolean, default: true },
+    promotions: { type: Boolean, default: true },
+    reviews: { type: Boolean, default: true },
+  },
 });
 
 module.exports = mongoose.model("User", userSchema);

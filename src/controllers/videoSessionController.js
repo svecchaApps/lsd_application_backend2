@@ -1,5 +1,7 @@
 const StylistBooking = require("../models/stylistBooking");
+const StylistProfile = require("../models/stylistProfile");
 const AgoraService = require("../service/agoraService");
+
 exports.joinSession = async (req, res) => {
     try {
       const { bookingId } = req.params;
@@ -26,21 +28,34 @@ exports.joinSession = async (req, res) => {
           message: "Booking not found"
         });
       }
-  
-      // 🔐 Ownership validation
-    //   const isUser =
-    //     role === "user" && booking.userId.toString() === userId;
-  
-    //   const isStylist =
-    //     role === "stylist" && booking.stylistId.toString() === userId;
-  
-    //   if (!isUser && !isStylist) {
-    //     return res.status(403).json({
-    //       success: false,
-    //       message: "Unauthorized"
-    //     });
-    //   }
-  
+
+      const isUser = booking.userId.toString() === userId.toString();
+      const stylistProfile = await StylistProfile.findById(booking.stylistId);
+      const isStylist =
+        stylistProfile &&
+        stylistProfile.userId.toString() === userId.toString();
+
+      if (!isUser && !isStylist) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized: You are not a participant on this booking"
+        });
+      }
+
+      if (role === "user" && !isUser) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized: userId does not match this booking's client"
+        });
+      }
+
+      if (role === "stylist" && !isStylist) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized: userId does not match this booking's stylist"
+        });
+      }
+
       // 💰 Allow test + real payments
       if (!["completed", "test"].includes(booking.paymentStatus)) {
         return res.status(400).json({
@@ -103,18 +118,41 @@ exports.joinSession = async (req, res) => {
         return res.status(500).json(tokenResult);
       }
   
-      // 🟢 Mark session live (only once)
+      const d = tokenResult.data;
+
+      // 🟢 Mark session live (only once); keep Agora channel in sync for chat + video
       if (booking.videoCallStatus !== "in_progress") {
         booking.videoCallStatus = "in_progress";
         booking.status = "in_progress";
         booking.videoCallStartedAt = now;
-        await booking.save();
       }
-  
+      booking.agoraChannelName = d.channelName;
+      booking.agoraAppId = d.appId;
+      await booking.save();
+
       return res.status(200).json({
         success: true,
-        message: "Session joined",
-        data: tokenResult.data
+        message:
+          "Session joined. Use connection.video for RTC (live call) and connection.chat for RTM on the same channel.",
+        data: {
+          ...d,
+          connection: {
+            sameChannelForVideoAndChat: true,
+            channelName: d.channelName,
+            video: {
+              appId: d.appId,
+              channelName: d.channelName,
+              token: d.rtcToken,
+              uid: d.rtcUid
+            },
+            chat: {
+              appId: d.appId,
+              channelName: d.channelName,
+              token: d.rtmToken,
+              uid: d.rtmUid
+            }
+          }
+        }
       });
   
     } catch (error) {
@@ -141,11 +179,15 @@ exports.endSession = async (req, res) => {
       if (!booking) {
         return res.status(404).json({ success: false, message: "Booking not found" });
       }
+
+      const stylistProfile = await StylistProfile.findById(booking.stylistId);
+      const isStylistOwner =
+        stylistProfile && stylistProfile.userId.toString() === userId;
   
       // Only stylist or admin can end early
       if (
         role !== "admin" &&
-        !(role === "stylist" && booking.stylistId.toString() === userId)
+        !(role === "stylist" && isStylistOwner)
       ) {
         return res.status(403).json({ success: false, message: "Unauthorized" });
       }

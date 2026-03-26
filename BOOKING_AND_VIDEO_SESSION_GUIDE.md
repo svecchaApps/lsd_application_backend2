@@ -7,7 +7,7 @@ This guide covers the complete flow from creating a booking to joining a video c
 - **Development**: `http://localhost:5000`
 - **Production**: `https://your-production-url.com`
 
-All endpoints are prefixed with `/api` except where noted.
+Booking-video and booking-chat routes use paths such as `/booking-video/...` and `/booking-chat/...` (no `/api` prefix unless your deployment adds one).
 
 ---
 
@@ -194,6 +194,8 @@ curl -X POST http://localhost:5000/stylist-booking/payment/verify \
 
 ## Step 3: Join Video Session (Agora Triggered Here)
 
+For **how to use the tokens in your app** (RTC + RTM, same channel, participant rules), see **`AGORA_VIDEO_CHAT_CLIENT_INTEGRATION.md`**.
+
 **Endpoint**: `POST /booking-video/bookings/:bookingId/join-session`  
 **Authentication**: Not required (currently commented out, but can be enabled)  
 **Description**: Joins the video call session. **This is where Agora tokens are generated and returned.** The AgoraService generates RTC and RTM tokens for video and chat functionality.
@@ -219,10 +221,12 @@ Content-Type: application/json
 - `bookingId` (String/ObjectId): Booking ID from Step 1
 
 ### Response (200 OK)
+The response includes a **`connection`** object that maps **video** (RTC) and **chat** (RTM) to the **same** `channelName`. See `AGORA_VIDEO_CHAT_CLIENT_INTEGRATION.md` for the full contract.
+
 ```json
 {
   "success": true,
-  "message": "Session joined",
+  "message": "Session joined. Use connection.video for RTC (live call) and connection.chat for RTM on the same channel.",
   "data": {
     "appId": "316bc1b489614e9da4b83b5d62dbbe00",
     "channelName": "session_BOOK_1767524375389_9qa7l65qy",
@@ -231,7 +235,13 @@ Content-Type: application/json
     "rtcUid": 175162216,
     "rtmUid": "user_507f1f77bcf86cd799439011",
     "expiresAt": 1767559200,
-    "expiresIn": 3600
+    "expiresIn": 3600,
+    "connection": {
+      "sameChannelForVideoAndChat": true,
+      "channelName": "session_BOOK_1767524375389_9qa7l65qy",
+      "video": { "appId": "...", "channelName": "...", "token": "<rtcToken>", "uid": 175162216 },
+      "chat": { "appId": "...", "channelName": "...", "token": "<rtmToken>", "uid": "user_507f1f77bcf86cd799439011" }
+    }
   }
 }
 ```
@@ -278,7 +288,7 @@ curl -X POST http://localhost:5000/booking-video/bookings/507f1f77bcf86cd7994390
 
 ### Flow in Code:
 
-1. **Controller**: `src/controllers/videoSessionController..js` → `joinSession()` function
+1. **Controller**: `src/controllers/videoSessionController.js` → `joinSession()` function
    - Validates booking exists
    - Checks payment status and booking status
    - Calls AgoraService to generate tokens

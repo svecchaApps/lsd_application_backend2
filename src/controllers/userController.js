@@ -1740,3 +1740,341 @@ exports.getPaymentHistory = async (req, res) => {
   }
 };
 
+// Convert user to stylist user
+exports.convertUserToStylist = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const {
+      stylistName,
+      stylistEmail,
+      stylistPhone,
+      stylistAddress,
+      stylistCity,
+      stylistState,
+      stylistPincode,
+      stylistCountry,
+      stylistImage,
+      stylistBio,
+      stylistPortfolio,
+      stylistExperience,
+      stylistEducation,
+      stylistSkills,
+      stylistAvailability,
+      stylistPrice,
+      stylistCategories
+    } = req.body;
+
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required"
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid userId format"
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Check if user is already a stylist
+    if (user.role === 'Stylist') {
+      const existingStylistProfile = await StylistProfile.findOne({ userId: user._id });
+      if (existingStylistProfile) {
+        return res.status(400).json({
+          success: false,
+          message: "User is already a stylist",
+          data: {
+            user: {
+              _id: user._id,
+              displayName: user.displayName,
+              email: user.email,
+              phoneNumber: user.phoneNumber,
+              role: user.role
+            },
+            stylistProfile: existingStylistProfile
+          }
+        });
+      }
+    }
+
+    // Check if stylist profile already exists
+    const existingProfile = await StylistProfile.findOne({ userId: user._id });
+    if (existingProfile) {
+      return res.status(400).json({
+        success: false,
+        message: "Stylist profile already exists for this user"
+      });
+    }
+
+    // Validate required fields for stylist profile
+    const requiredFields = {
+      stylistName: stylistName || user.displayName,
+      stylistEmail: stylistEmail || user.email,
+      stylistPhone: stylistPhone || user.phoneNumber,
+      stylistAddress: stylistAddress || '',
+      stylistCity: stylistCity || '',
+      stylistState: stylistState || '',
+      stylistPincode: stylistPincode || '',
+      stylistCountry: stylistCountry || 'India',
+      stylistImage: stylistImage || '',
+      stylistBio: stylistBio || '',
+      stylistPortfolio: stylistPortfolio || [],
+      stylistExperience: stylistExperience || '',
+      stylistEducation: stylistEducation || '',
+      stylistSkills: stylistSkills || [],
+      stylistAvailability: stylistAvailability || 'Available'
+    };
+
+    // Validate arrays
+    if (!Array.isArray(requiredFields.stylistPortfolio)) {
+      requiredFields.stylistPortfolio = [];
+    }
+    if (!Array.isArray(requiredFields.stylistSkills)) {
+      requiredFields.stylistSkills = [];
+    }
+
+    // Validate categories if provided
+    let categoryIds = [];
+    if (stylistCategories && Array.isArray(stylistCategories)) {
+      for (const catId of stylistCategories) {
+        if (mongoose.Types.ObjectId.isValid(catId)) {
+          const StylistCategory = require("../models/stylistCategoryModel");
+          const category = await StylistCategory.findOne({ 
+            _id: catId, 
+            isActive: true 
+          });
+          if (category) {
+            categoryIds.push(catId);
+          }
+        }
+      }
+    }
+
+    // Update user role to Stylist
+    user.role = 'Stylist';
+    user.is_creator = true; // Stylists are creators
+    await user.save();
+
+    // Create stylist profile
+    const stylistProfile = new StylistProfile({
+      userId: user._id,
+      stylistName: requiredFields.stylistName,
+      stylistEmail: requiredFields.stylistEmail,
+      stylistPhone: requiredFields.stylistPhone,
+      stylistAddress: requiredFields.stylistAddress,
+      stylistCity: requiredFields.stylistCity,
+      stylistState: requiredFields.stylistState,
+      stylistPincode: requiredFields.stylistPincode,
+      stylistCountry: requiredFields.stylistCountry,
+      stylistImage: requiredFields.stylistImage,
+      stylistBio: requiredFields.stylistBio,
+      stylistPortfolio: requiredFields.stylistPortfolio,
+      stylistExperience: requiredFields.stylistExperience,
+      stylistEducation: requiredFields.stylistEducation,
+      stylistSkills: requiredFields.stylistSkills,
+      stylistCategories: categoryIds,
+      stylistAvailability: requiredFields.stylistAvailability,
+      stylistPrice: stylistPrice || 0,
+      stylistRating: 0,
+      stylistReviews: [],
+      isApproved: false,
+      approvalStatus: "pending",
+      applicationStatus: "submitted",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    await stylistProfile.save();
+
+    // Populate user details and categories
+    await stylistProfile.populate('userId', 'displayName email phoneNumber role');
+    if (categoryIds.length > 0) {
+      await stylistProfile.populate('stylistCategories', 'name description image icon');
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "User successfully converted to stylist",
+      data: {
+        user: {
+          _id: user._id,
+          displayName: user.displayName,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          role: user.role,
+          is_creator: user.is_creator,
+          createdAt: user.createdTime
+        },
+        stylistProfile: stylistProfile
+      }
+    });
+
+  } catch (error) {
+    console.error("Convert user to stylist error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to convert user to stylist",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Register / update FCM token for a user
+ * POST /user/:userId/fcm-token
+ */
+exports.registerFcmToken = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { fcmToken } = req.body;
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Valid userId is required" });
+    }
+
+    if (!fcmToken || typeof fcmToken !== "string" || fcmToken.trim() === "") {
+      return res.status(400).json({ success: false, message: "fcmToken is required" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { fcmToken: fcmToken.trim() },
+      { new: true }
+    ).select("_id displayName email fcmToken");
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "FCM token registered successfully",
+      data: { userId: user._id, fcmToken: user.fcmToken },
+    });
+  } catch (error) {
+    console.error("Register FCM token error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to register FCM token",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Delete user account (soft-delete by removing FCM token and marking inactive,
+ * or hard-delete on explicit request)
+ * DELETE /user/:userId
+ */
+exports.deleteUserAccount = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Valid userId is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Cancel any pending/confirmed bookings before deletion
+    const StylistBooking = require("../models/stylistBooking");
+    await StylistBooking.updateMany(
+      { userId, status: { $in: ["pending", "confirmed"] } },
+      {
+        $set: {
+          status: "cancelled",
+          isCancelled: true,
+          cancellationReason: "Account deleted by user",
+          cancelledAt: new Date(),
+          cancelledBy: userId,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    await User.findByIdAndDelete(userId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Account deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete user account error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete account",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Update notification preferences for a user
+ * PUT /user/:userId/notification-preferences
+ */
+exports.updateNotificationPreferences = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { bookingConfirmations, sessionReminders, cancellations, promotions, reviews } =
+      req.body;
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Valid userId is required" });
+    }
+
+    const update = {};
+    if (bookingConfirmations !== undefined)
+      update["notificationPreferences.bookingConfirmations"] = Boolean(bookingConfirmations);
+    if (sessionReminders !== undefined)
+      update["notificationPreferences.sessionReminders"] = Boolean(sessionReminders);
+    if (cancellations !== undefined)
+      update["notificationPreferences.cancellations"] = Boolean(cancellations);
+    if (promotions !== undefined)
+      update["notificationPreferences.promotions"] = Boolean(promotions);
+    if (reviews !== undefined)
+      update["notificationPreferences.reviews"] = Boolean(reviews);
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one preference field is required",
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(userId, { $set: update }, { new: true }).select(
+      "notificationPreferences"
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification preferences updated successfully",
+      data: { notificationPreferences: user.notificationPreferences },
+    });
+  } catch (error) {
+    console.error("Update notification preferences error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update notification preferences",
+      error: error.message,
+    });
+  }
+};

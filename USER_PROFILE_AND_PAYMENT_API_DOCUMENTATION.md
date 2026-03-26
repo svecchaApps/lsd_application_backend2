@@ -545,6 +545,244 @@ Future<Map<String, dynamic>> getPaymentHistory(
 
 ---
 
+## 4. Convert User to Stylist
+
+**Endpoint**: `POST /user/convert-to-stylist/:userId`  
+**Authentication**: Not required (Public endpoint)  
+**Description**: Converts a regular user to a stylist user by updating their role and creating a stylist profile.
+
+### URL Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `userId` | String/ObjectId | Yes | User ID to convert |
+
+### Request Body
+
+```json
+{
+  "stylistName": "Sarah's Fashion Studio",
+  "stylistEmail": "sarah@example.com",
+  "stylistPhone": "+919876543211",
+  "stylistAddress": "123 Fashion Street",
+  "stylistCity": "Mumbai",
+  "stylistState": "Maharashtra",
+  "stylistPincode": "400001",
+  "stylistCountry": "India",
+  "stylistImage": "https://example.com/stylist.jpg",
+  "stylistBio": "Professional stylist with 5+ years of experience",
+  "stylistPortfolio": [
+    "https://example.com/portfolio1.jpg",
+    "https://example.com/portfolio2.jpg"
+  ],
+  "stylistExperience": "5+ years in fashion styling",
+  "stylistEducation": "Fashion Design Degree",
+  "stylistSkills": ["Hair Styling", "Makeup", "Wardrobe"],
+  "stylistAvailability": "Monday-Sunday: 10AM-8PM",
+  "stylistPrice": 2000,
+  "stylistCategories": ["507f1f77bcf86cd799439011", "507f1f77bcf86cd799439012"]
+}
+```
+
+### Request Fields
+
+All fields are optional. If not provided, defaults will be used from the user's existing data:
+
+- `stylistName` (String): Stylist business name (defaults to user's displayName)
+- `stylistEmail` (String): Stylist email (defaults to user's email)
+- `stylistPhone` (String): Stylist phone (defaults to user's phoneNumber)
+- `stylistAddress` (String): Stylist address
+- `stylistCity` (String): Stylist city
+- `stylistState` (String): Stylist state
+- `stylistPincode` (String): Stylist pincode
+- `stylistCountry` (String): Stylist country (defaults to "India")
+- `stylistImage` (String): Stylist profile image URL
+- `stylistBio` (String): Stylist biography
+- `stylistPortfolio` (Array): Array of portfolio image URLs
+- `stylistExperience` (String): Stylist experience description
+- `stylistEducation` (String): Stylist education
+- `stylistSkills` (Array): Array of skill strings
+- `stylistAvailability` (String): Availability description (defaults to "Available")
+- `stylistPrice` (Number): Default price per session (defaults to 0)
+- `stylistCategories` (Array): Array of category ObjectIds
+
+### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "User successfully converted to stylist",
+  "data": {
+    "user": {
+      "_id": "507f1f77bcf86cd799439011",
+      "displayName": "John Doe",
+      "email": "john.doe@example.com",
+      "phoneNumber": "+919876543210",
+      "role": "Stylist",
+      "is_creator": true,
+      "createdAt": "2024-01-01T10:00:00.000Z"
+    },
+    "stylistProfile": {
+      "_id": "507f1f77bcf86cd799439012",
+      "userId": {
+        "_id": "507f1f77bcf86cd799439011",
+        "displayName": "John Doe",
+        "email": "john.doe@example.com",
+        "phoneNumber": "+919876543210",
+        "role": "Stylist"
+      },
+      "stylistName": "Sarah's Fashion Studio",
+      "stylistEmail": "sarah@example.com",
+      "stylistPhone": "+919876543211",
+      "stylistAddress": "123 Fashion Street",
+      "stylistCity": "Mumbai",
+      "stylistState": "Maharashtra",
+      "stylistPincode": "400001",
+      "stylistCountry": "India",
+      "stylistImage": "https://example.com/stylist.jpg",
+      "stylistBio": "Professional stylist with 5+ years of experience",
+      "stylistPortfolio": [
+        "https://example.com/portfolio1.jpg",
+        "https://example.com/portfolio2.jpg"
+      ],
+      "stylistExperience": "5+ years in fashion styling",
+      "stylistEducation": "Fashion Design Degree",
+      "stylistSkills": ["Hair Styling", "Makeup", "Wardrobe"],
+      "stylistCategories": [
+        {
+          "_id": "507f1f77bcf86cd799439011",
+          "name": "Hair Styling",
+          "description": "Professional hair styling services",
+          "image": "https://example.com/category.jpg",
+          "icon": "https://example.com/icon.svg"
+        }
+      ],
+      "stylistAvailability": "Monday-Sunday: 10AM-8PM",
+      "stylistPrice": 2000,
+      "stylistRating": 0,
+      "stylistReviews": [],
+      "isApproved": false,
+      "approvalStatus": "pending",
+      "applicationStatus": "submitted",
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "updatedAt": "2024-01-15T10:00:00.000Z"
+    }
+  }
+}
+```
+
+### Error Responses
+
+**400 Bad Request** - User already a stylist
+```json
+{
+  "success": false,
+  "message": "User is already a stylist",
+  "data": {
+    "user": { /* user data */ },
+    "stylistProfile": { /* existing stylist profile */ }
+  }
+}
+```
+
+**400 Bad Request** - Stylist profile already exists
+```json
+{
+  "success": false,
+  "message": "Stylist profile already exists for this user"
+}
+```
+
+**404 Not Found** - User not found
+```json
+{
+  "success": false,
+  "message": "User not found"
+}
+```
+
+### cURL Example
+
+```bash
+curl -X POST "http://localhost:5000/user/convert-to-stylist/507f1f77bcf86cd799439011" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stylistName": "Sarah'\''s Fashion Studio",
+    "stylistEmail": "sarah@example.com",
+    "stylistPhone": "+919876543211",
+    "stylistAddress": "123 Fashion Street",
+    "stylistCity": "Mumbai",
+    "stylistState": "Maharashtra",
+    "stylistPincode": "400001",
+    "stylistCountry": "India",
+    "stylistImage": "https://example.com/stylist.jpg",
+    "stylistBio": "Professional stylist with 5+ years of experience",
+    "stylistPortfolio": ["https://example.com/portfolio1.jpg"],
+    "stylistExperience": "5+ years in fashion styling",
+    "stylistEducation": "Fashion Design Degree",
+    "stylistSkills": ["Hair Styling", "Makeup"],
+    "stylistAvailability": "Monday-Sunday: 10AM-8PM",
+    "stylistPrice": 2000
+  }'
+```
+
+### Usage Example
+
+```javascript
+const convertUserToStylist = async (userId, stylistData) => {
+  const response = await fetch(`/user/convert-to-stylist/${userId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(stylistData)
+  });
+  
+  const data = await response.json();
+  
+  if (data.success) {
+    return data.data;
+  } else {
+    throw new Error(data.message);
+  }
+};
+
+// Usage
+await convertUserToStylist('507f1f77bcf86cd799439011', {
+  stylistName: "Sarah's Fashion Studio",
+  stylistEmail: "sarah@example.com",
+  stylistPhone: "+919876543211",
+  stylistBio: "Professional stylist",
+  stylistSkills: ["Hair Styling", "Makeup"],
+  stylistPrice: 2000
+});
+```
+
+### Flutter/Dart Example
+
+```dart
+Future<Map<String, dynamic>> convertUserToStylist(
+  String userId,
+  Map<String, dynamic> stylistData
+) async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/user/convert-to-stylist/$userId'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode(stylistData)
+  );
+  
+  final data = jsonDecode(response.body);
+  
+  if (data['success'] == true) {
+    return data['data'];
+  } else {
+    throw Exception(data['message']);
+  }
+}
+```
+
+---
+
 ## Summary
 
 ### Endpoints Created
@@ -564,5 +802,11 @@ Future<Map<String, dynamic>> getPaymentHistory(
    - Combines booking and order payments
    - Supports filtering by payment type
    - Includes pagination and summary statistics
+
+4. **POST /user/convert-to-stylist/:userId** - Convert user to stylist
+   - Updates user role to "Stylist"
+   - Creates stylist profile
+   - Sets is_creator to true
+   - All stylist fields are optional (uses user data as defaults)
 
 All endpoints are ready to use and fully documented!

@@ -1372,6 +1372,101 @@ class StylistBookingController {
             });
         }
     }
+
+    /**
+     * Submit review and rating for a completed booking
+     * POST /stylist-booking/:bookingId/review
+     */
+    static async submitReview(req, res) {
+        try {
+            const { bookingId } = req.params;
+            const { rating, review } = req.body;
+            const userId = req.user._id;
+
+            if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid booking ID format"
+                });
+            }
+
+            if (!rating || typeof rating !== "number" || rating < 1 || rating > 5) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Rating must be a number between 1 and 5"
+                });
+            }
+
+            const booking = await StylistBooking.findById(bookingId);
+
+            if (!booking) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Booking not found"
+                });
+            }
+
+            if (booking.userId.toString() !== userId.toString()) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Access denied"
+                });
+            }
+
+            if (booking.status !== "completed") {
+                return res.status(400).json({
+                    success: false,
+                    message: "Reviews can only be submitted for completed bookings"
+                });
+            }
+
+            if (booking.userRating) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Review already submitted for this booking"
+                });
+            }
+
+            booking.userRating = rating;
+            booking.userReview = review || "";
+            booking.updatedAt = new Date();
+            await booking.save();
+
+            // Recalculate stylist average rating
+            const StylistProfile = require("../models/stylistProfile");
+            const ratedBookings = await StylistBooking.find({
+                stylistId: booking.stylistId,
+                userRating: { $exists: true, $ne: null }
+            }).select("userRating");
+
+            if (ratedBookings.length > 0) {
+                const avgRating =
+                    ratedBookings.reduce((sum, b) => sum + b.userRating, 0) /
+                    ratedBookings.length;
+                await StylistProfile.findByIdAndUpdate(booking.stylistId, {
+                    stylistRating: parseFloat(avgRating.toFixed(1))
+                });
+            }
+
+            return res.status(201).json({
+                success: true,
+                message: "Review submitted successfully",
+                data: {
+                    bookingId: booking._id,
+                    rating: booking.userRating,
+                    review: booking.userReview
+                }
+            });
+
+        } catch (error) {
+            console.error("Submit review error:", error);
+            return res.status(500).json({
+                success: false,
+                message: "Failed to submit review",
+                error: error.message
+            });
+        }
+    }
 }
 
 module.exports = StylistBookingController;

@@ -291,6 +291,112 @@ exports.updateFcmToken = async (req, res) => {
 };
 
 
+// Get notifications inbox for a user (stylist app)
+exports.getUserNotifications = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20, seen } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "userId is required" });
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = Math.min(parseInt(limit), 100);
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = { userId };
+    if (seen === "true") query.seen = true;
+    if (seen === "false") query.seen = false;
+
+    const [notifications, total] = await Promise.all([
+      Notifications.find(query)
+        .sort({ createdDate: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Notifications.countDocuments(query),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Notifications retrieved successfully",
+      data: {
+        notifications,
+        pagination: {
+          currentPage: pageNum,
+          totalPages: Math.ceil(total / limitNum),
+          total,
+          limit: limitNum,
+          hasNextPage: skip + notifications.length < total,
+          hasPrevPage: pageNum > 1,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving notifications",
+      error: error.message,
+    });
+  }
+};
+
+// Get unread notification count (badge count)
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "userId is required" });
+    }
+
+    const count = await Notifications.countDocuments({ userId, seen: false });
+
+    return res.status(200).json({
+      success: true,
+      data: { unreadCount: count },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching unread count",
+      error: error.message,
+    });
+  }
+};
+
+// Mark notifications as read
+exports.markNotificationsRead = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { notificationIds } = req.body; // optional array; if omitted, mark all
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "userId is required" });
+    }
+
+    const query = { userId, seen: false };
+    if (Array.isArray(notificationIds) && notificationIds.length > 0) {
+      query._id = { $in: notificationIds };
+    }
+
+    const result = await Notifications.updateMany(query, { $set: { seen: true } });
+
+    return res.status(200).json({
+      success: true,
+      message: "Notifications marked as read",
+      data: { modifiedCount: result.modifiedCount },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error marking notifications as read",
+      error: error.message,
+    });
+  }
+};
+
 // Create a new return notification
 exports.createReturnNotification = async (req, res) => {
   try {

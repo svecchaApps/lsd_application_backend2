@@ -90,4 +90,28 @@ router.get(
   userController.getPaymentHistory
 );
 
+// Convert user to stylist user
+router.post(
+  "/convert-to-stylist/:userId",
+  userController.convertUserToStylist
+);
+
+// Register / update FCM token (stylist app)
+router.post(
+  "/:userId/fcm-token",
+  userController.registerFcmToken
+);
+
+// Update notification preferences (stylist app)
+router.put(
+  "/:userId/notification-preferences",
+  userController.updateNotificationPreferences
+);
+
+// Delete user account (stylist app)
+router.delete(
+  "/:userId",
+  userController.deleteUserAccount
+);
+
 module.exports = router;
