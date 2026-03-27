@@ -275,6 +275,34 @@ const stylistProfileSchema = new mongoose.Schema({
         }
     },
 
+    // Professional portal fields (new app flow)
+    fullName: { type: String },
+    shortBio: { type: String },
+    specialties: [{ type: String }],
+    yearsOfExperience: { type: String },
+    portfolioLink: { type: String },
+    baseSessionFee: { type: String },
+    addOnServices: [{ type: String }],
+    paymentModes: [{ type: String }],
+    profilePictureUrl: { type: String },
+    professionalAvailability: {
+        dayAvailability: {
+            Monday: { type: Boolean, default: false },
+            Tuesday: { type: Boolean, default: false },
+            Wednesday: { type: Boolean, default: false },
+            Thursday: { type: Boolean, default: false },
+            Friday: { type: Boolean, default: false },
+            Saturday: { type: Boolean, default: false },
+            Sunday: { type: Boolean, default: false },
+        },
+        startTime: { type: String },
+        endTime: { type: String },
+        breaks: [{
+            start: { type: String },
+            end: { type: String },
+        }],
+    },
+
     updatedAt: {
         type: Date,
         default: Date.now,

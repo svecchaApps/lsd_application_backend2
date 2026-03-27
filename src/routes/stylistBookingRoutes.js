@@ -106,7 +106,7 @@ router.post(
 router.get(
     "/stylist-bookings",
     authMiddleware,
-    roleMiddleware(["Stylist"]),
+    roleMiddleware(["Stylist", "stylist"]),
     stylistBookingController.getStylistBookings
 );
 

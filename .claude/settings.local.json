@@ -4,7 +4,9 @@
       "Bash(for f:*)",
       "Bash(do basename:*)",
       "Bash(done)",
-      "Bash(wc -l /c/Users/offic/Onedrive/Desktop/lsdauth/src/controllers/*.js)"
+      "Bash(wc -l /c/Users/offic/Onedrive/Desktop/lsdauth/src/controllers/*.js)",
+      "Bash(grep \"\\\\.js$\")",
+      "Bash(ls -1 /c/Users/offic/Onedrive/Desktop/lsdauth/*.js)"
     ]
   }
 }

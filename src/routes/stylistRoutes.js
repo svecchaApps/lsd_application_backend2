@@ -1,10 +1,31 @@
 const express = require("express");
 const router = express.Router();
 const stylistController = require("../controllers/stylistController");
+const professionalStylistController = require("../controllers/professionalStylistController");
 const {
     authMiddleware,
     roleMiddleware,
 } = require("../middleware/authMiddleware");
+
+// ── Professional Stylist Portal (Firebase-auth'd) ─────────────────────────
+// These specific string routes must come before any /:stylistId wildcards.
+
+router.get(
+    "/check-professional/:phoneNumber",
+    professionalStylistController.checkProfessional
+);
+
+router.post(
+    "/register-professional",
+    professionalStylistController.registerProfessional
+);
+
+router.get(
+    "/dashboard-stats/:stylistId",
+    authMiddleware,
+    professionalStylistController.getDashboardStats
+);
+// ─────────────────────────────────────────────────────────────────────────
 
 // Public routes (no authentication required)
 router.get(
@@ -140,5 +161,33 @@ router.get(
     "/availability",
     stylistController.getAvailabilityWithStylistInfo
 );
+
+// ── Professional Dashboard ─────────────────────────────────────────────────
+// /:stylistId sub-routes (stylistId = User._id from JWT)
+
+router.get(
+    "/:stylistId/bookings",
+    authMiddleware,
+    professionalStylistController.getStylistBookings
+);
+
+router.get(
+    "/:stylistId/clients",
+    authMiddleware,
+    professionalStylistController.getStylistClients
+);
+
+router.put(
+    "/:stylistId/profile",
+    authMiddleware,
+    professionalStylistController.updateProfile
+);
+
+router.put(
+    "/:stylistId/availability",
+    authMiddleware,
+    professionalStylistController.updateAvailability
+);
+// ─────────────────────────────────────────────────────────────────────────
 
 module.exports = router;

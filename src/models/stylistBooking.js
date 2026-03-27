@@ -25,6 +25,26 @@ const stylistBookingSchema = new mongoose.Schema({
         default: false
       },
       
+    // Session type (video / in-person)
+    sessionType: {
+        type: String,
+        enum: ['video', 'in-person'],
+        default: 'video',
+    },
+
+    // Client notes for the session
+    notes: { type: String },
+
+    // Reason populated on rejection or cancellation
+    rejectionReason: { type: String },
+
+    // Itemised amounts
+    baseAmount: { type: Number },
+    totalAmount: { type: Number },
+
+    // Add-on services selected by the client
+    addOnServices: [{ type: String }],
+
     // Booking details
     bookingType: {
         type: String,

@@ -254,7 +254,7 @@ exports.login = async (req, res) => {
     // Find user by phone number
     const user = await User.findOne({ phoneNumber });
     if (!user) {
-      return res.status(401).json({
+      return res.status(404).json({
         success: false,
         message: "User not found. Please register first.",
       });
@@ -266,26 +266,35 @@ exports.login = async (req, res) => {
       await user.save();
     }
 
+    // Professional stylists get a 100-day token with lowercase role per app spec
+    const isStylist = user.role === "Stylist";
+    const jwtRole = isStylist ? "stylist" : user.role;
+    const tokenExpiry = isStylist ? "100d" : JWT_EXPIRES_IN;
+    const refreshExpiry = isStylist ? "100d" : JWT_REFRESH_EXPIRES_IN;
+
     // Generate tokens
     const tokenPayload = {
       id: user._id,
       phoneNumber: user.phoneNumber,
-      role: user.role,
+      role: jwtRole,
       is_creator: user.is_creator,
     };
 
-    const accessToken = generateToken(tokenPayload);
-    const refreshToken = generateRefreshToken(tokenPayload);
+    const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: tokenExpiry });
+    const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: refreshExpiry });
 
     // Store refresh token
     refreshTokens.add(refreshToken);
 
     // Return user data and tokens
     const userResponse = {
+      id: user._id,
       _id: user._id,
       displayName: user.displayName,
+      name: user.displayName,
       phoneNumber: user.phoneNumber,
-      role: user.role,
+      email: user.email || null,
+      role: jwtRole,
       is_creator: user.is_creator,
       address: user.address,
       createdAt: user.createdAt,
@@ -298,7 +307,7 @@ exports.login = async (req, res) => {
       accessToken,
       refreshToken,
       tokenType: "Bearer",
-      expiresIn: JWT_EXPIRES_IN,
+      expiresIn: tokenExpiry,
     });
   } catch (error) {
     console.error("Login error:", error);
