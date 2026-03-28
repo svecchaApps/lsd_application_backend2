@@ -54,10 +54,9 @@ router.get(
     stylistController.getStylistsByCategory
 );
 
-// User routes (authentication required)
+// Registration — no auth required (userId resolved from token if present)
 router.post(
     "/create",
-    authMiddleware,
     stylistController.createStylistProfile
 );
 

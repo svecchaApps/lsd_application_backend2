@@ -9,7 +9,6 @@ const {
     sendFcmNotification,
 } = require("./notificationController");
 
-// Create stylist profile
 exports.createStylistProfile = async (req, res) => {
     try {
         const {
@@ -31,7 +30,8 @@ exports.createStylistProfile = async (req, res) => {
             stylistPrice,
         } = req.body;
 
-        const userId = req.user._id;
+        // userId is optional — not available during the registration flow
+        const userId = req.user?._id || req.user?.id || null;
 
         // Validate required fields
         const requiredFields = [
@@ -61,13 +61,15 @@ exports.createStylistProfile = async (req, res) => {
             }
         }
 
-        // Check if user already has a stylist profile
-        const existingProfile = await StylistProfile.findOne({ userId });
-        if (existingProfile) {
-            return res.status(400).json({
-                success: false,
-                message: "Stylist profile already exists for this user"
-            });
+        // Only check for duplicate profile when a userId is present
+        if (userId) {
+            const existingProfile = await StylistProfile.findOne({ userId });
+            if (existingProfile) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Stylist profile already exists for this user"
+                });
+            }
         }
 
         // Validate arrays
