@@ -15,59 +15,57 @@ const stylistProfileSchema = new mongoose.Schema({
     },
     stylistName: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistEmail: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistPhone: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistAddress: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistCity: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistState: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistPincode: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistCountry: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistImage: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistBio: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistPortfolio: [{
         type: String,
-        required: true,
     }],
     stylistExperience: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistEducation: {
         type: String,
-        required: true,
+        required: false,
     },
     stylistSkills: [{
         type: String,
-        required: true,
     }],
     stylistCategories: [{
         type: mongoose.Schema.Types.ObjectId,
