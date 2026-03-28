@@ -25,6 +25,17 @@ router.get(
     authMiddleware,
     professionalStylistController.getDashboardStats
 );
+
+// Joining fee payment (no JWT — happens before account is active)
+router.post(
+    "/joining-fee/initiate",
+    professionalStylistController.initiateJoiningFee
+);
+
+router.post(
+    "/joining-fee/verify",
+    professionalStylistController.verifyJoiningFee
+);
 // ─────────────────────────────────────────────────────────────────────────
 
 // Public routes (no authentication required)

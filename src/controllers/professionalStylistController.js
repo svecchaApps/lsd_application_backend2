@@ -1,11 +1,15 @@
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const User = require("../models/userModel");
 const StylistProfile = require("../models/stylistProfile");
 const StylistBooking = require("../models/stylistBooking");
 const { admin } = require("../service/firebaseServices");
 const { sendFcmNotification } = require("./notificationController");
+const RazorpayService = require("../service/razorpayService");
 require("dotenv").config();
+
+const JOINING_FEE = parseInt(process.env.STYLIST_JOINING_FEE || "499", 10); // INR
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "your-refresh-secret-key";
@@ -692,5 +696,282 @@ exports.updateAvailability = async (req, res) => {
         if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
         console.error("updateAvailability:", err);
         return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ─── POST /stylist/joining-fee/initiate ──────────────────────────────────────
+//
+// Called at the END of onboarding (before final registration).
+// Creates a PENDING stylist profile and a Razorpay order for the joining fee.
+// The app must complete payment then call /joining-fee/verify to activate the account.
+
+exports.initiateJoiningFee = async (req, res) => {
+    try {
+        const b = req.body;
+
+        const phoneNumber     = b.phoneNumber;
+        const firebaseIdToken = b.firebaseIdToken;
+        const fullName        = b.fullName || b.stylistName || b.displayName || b.name || "";
+        const shortBio        = b.shortBio || b.stylistBio || b.bio || "";
+        const specialties     = b.specialties || b.stylistSkills || b.skills || b.categories || [];
+        const yearsOfExperience = b.yearsOfExperience || b.stylistExperience || b.experience || "";
+        const portfolioLink   = b.portfolioLink || b.portfolioUrl ||
+                                (Array.isArray(b.stylistPortfolio) ? b.stylistPortfolio[0] : b.stylistPortfolio) || "";
+        const baseSessionFee  = b.baseSessionFee || b.sessionFee ||
+                                (b.stylistPrice ? `₹${b.stylistPrice}` : "") || "";
+        const addOnServices   = b.addOnServices  || b.addons  || [];
+        const paymentModes    = b.paymentModes   || b.payment || [];
+        const profilePictureUrl = b.profilePictureUrl || b.stylistImage || b.profileImage || b.imageUrl || "";
+        const joiningFee      = b.joiningFee || JOINING_FEE;
+
+        let dayAvailability = b.dayAvailability || b.availability || null;
+        if (typeof dayAvailability === "string" || !dayAvailability) {
+            dayAvailability = { Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false };
+        }
+        const startTime = b.startTime || b.workStartTime || "10:00 AM";
+        const endTime   = b.endTime   || b.workEndTime   || "7:00 PM";
+
+        // Required field validation
+        if (!phoneNumber || !firebaseIdToken || !fullName) {
+            return res.status(400).json({ success: false, message: "phoneNumber, firebaseIdToken and fullName are required" });
+        }
+
+        // Verify Firebase token
+        let decoded;
+        try {
+            decoded = await admin.auth().verifyIdToken(firebaseIdToken);
+        } catch {
+            return res.status(401).json({ success: false, message: "Invalid Firebase token" });
+        }
+
+        if (decoded.phone_number !== phoneNumber) {
+            return res.status(400).json({ success: false, message: "Phone number does not match Firebase token" });
+        }
+
+        // Check if already fully registered
+        const existingUser = await User.findOne({ phoneNumber, role: "Stylist" });
+        if (existingUser) {
+            const existingProfile = await StylistProfile.findOne({
+                userId: existingUser._id,
+                applicationStatus: "approved",
+            });
+            if (existingProfile) {
+                return res.status(409).json({ success: false, message: "Phone number already registered as a professional stylist" });
+            }
+        }
+
+        // Upsert user
+        let user = await User.findOne({ phoneNumber });
+        if (user) {
+            user.role = "Stylist";
+            user.displayName = fullName;
+            if (!user.firebaseUid) user.firebaseUid = decoded.uid;
+            if (!user.email && (b.stylistEmail || b.email)) user.email = b.stylistEmail || b.email;
+        } else {
+            user = new User({
+                displayName: fullName,
+                phoneNumber,
+                email: b.stylistEmail || b.email || undefined,
+                firebaseUid: decoded.uid,
+                role: "Stylist",
+            });
+        }
+        await user.save();
+
+        // Remove any previous incomplete payment attempt for this user
+        await StylistProfile.deleteOne({ userId: user._id, applicationStatus: { $in: ["payment_pending", "draft"] } });
+
+        // Create pending StylistProfile (not activated until payment verified)
+        const profile = new StylistProfile({
+            userId: user._id,
+            stylistName: fullName,
+            stylistBio: shortBio,
+            stylistEmail: b.stylistEmail || b.email || "",
+            stylistPhone: phoneNumber,
+            stylistAddress: b.stylistAddress || "",
+            stylistCity: b.stylistCity || "",
+            stylistState: b.stylistState || "",
+            stylistPincode: b.stylistPincode || "",
+            stylistCountry: b.stylistCountry || "India",
+            stylistImage: profilePictureUrl,
+            stylistExperience: yearsOfExperience,
+            stylistEducation: b.stylistEducation || "",
+            stylistSkills: Array.isArray(specialties) ? specialties : [specialties],
+            stylistPortfolio: portfolioLink ? [portfolioLink] : [],
+            stylistAvailability: "Available",
+            stylistPrice: b.stylistPrice || 0,
+            fullName,
+            shortBio,
+            specialties: Array.isArray(specialties) ? specialties : [specialties],
+            yearsOfExperience,
+            portfolioLink,
+            baseSessionFee,
+            addOnServices: Array.isArray(addOnServices) ? addOnServices : [],
+            paymentModes:  Array.isArray(paymentModes)  ? paymentModes  : [],
+            profilePictureUrl,
+            professionalAvailability: { dayAvailability, startTime, endTime, breaks: b.breaks || [] },
+            // Payment fields
+            applicationStatus: "payment_pending",
+            isApproved: false,
+            approvalStatus: "pending",
+            registrationFee: joiningFee,
+            paymentStatus: "pending",
+        });
+        await profile.save();
+
+        // Create Razorpay order
+        const receipt = `sjoin_${profile._id.toString().slice(-8)}_${Date.now()}`;
+        const orderResult = await RazorpayService.createOrder({
+            amount: joiningFee,
+            currency: "INR",
+            receipt,
+            notes: {
+                type: "stylist_joining_fee",
+                profileId: profile._id.toString(),
+                userId: user._id.toString(),
+                stylistName: fullName,
+                phoneNumber,
+            },
+        });
+
+        if (!orderResult.success) {
+            // Clean up the pending profile if order creation fails
+            await StylistProfile.findByIdAndDelete(profile._id);
+            return res.status(500).json({ success: false, message: "Failed to create payment order. Please try again." });
+        }
+
+        // Store Razorpay order ID on the profile
+        profile.razorpayOrderId = orderResult.data.orderId;
+        await profile.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Joining fee order created. Complete payment to activate your account.",
+            data: {
+                profileId: profile._id,
+                joiningFee,
+                currency: "INR",
+                razorpayKeyId: process.env.RAZORPAY_KEY_ID,
+                orderId: orderResult.data.orderId,
+                amount: orderResult.data.amount,       // in paise
+                amountInRupees: joiningFee,
+                // Pre-filled details for Razorpay checkout
+                prefill: {
+                    name: fullName,
+                    contact: phoneNumber,
+                    email: b.stylistEmail || b.email || "",
+                },
+                description: "Stylist Professional Account — Joining Fee",
+            },
+        });
+    } catch (err) {
+        console.error("initiateJoiningFee:", err);
+        return res.status(500).json({ success: false, message: "Internal server error", error: err.message });
+    }
+};
+
+// ─── POST /stylist/joining-fee/verify ────────────────────────────────────────
+//
+// Called after the Razorpay payment sheet closes with a successful payment.
+// Verifies the signature, activates the stylist profile, and issues the JWT.
+
+exports.verifyJoiningFee = async (req, res) => {
+    try {
+        const {
+            profileId,
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+        } = req.body;
+
+        if (!profileId || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+            return res.status(400).json({
+                success: false,
+                message: "profileId, razorpay_order_id, razorpay_payment_id and razorpay_signature are required",
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(profileId)) {
+            return res.status(400).json({ success: false, message: "Invalid profileId" });
+        }
+
+        // Find the pending profile
+        const profile = await StylistProfile.findOne({
+            _id: profileId,
+            razorpayOrderId: razorpay_order_id,
+            applicationStatus: "payment_pending",
+        });
+
+        if (!profile) {
+            return res.status(404).json({
+                success: false,
+                message: "Pending profile not found. It may have already been activated or the order ID is incorrect.",
+            });
+        }
+
+        // Verify Razorpay signature
+        const isValid = RazorpayService.verifyPaymentSignature({
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+        });
+
+        if (!isValid) {
+            return res.status(400).json({ success: false, message: "Payment verification failed. Invalid signature." });
+        }
+
+        // Activate the profile
+        profile.applicationStatus = "approved";
+        profile.isApproved = true;
+        profile.approvalStatus = "approved";
+        profile.paymentStatus = "completed";
+        profile.razorpayPaymentId = razorpay_payment_id;
+        profile.razorpaySignature = razorpay_signature;
+        profile.paymentCompletedAt = new Date();
+        profile.approvedAt = new Date();
+        profile.updatedAt = new Date();
+        await profile.save();
+
+        // Fetch the linked user
+        const user = await User.findById(profile.userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User account not found" });
+        }
+
+        // Issue 100-day JWT
+        const tokenPayload = {
+            id: user._id,
+            phoneNumber: user.phoneNumber,
+            role: "stylist",
+        };
+        const accessToken   = generateToken(tokenPayload);
+        const refreshToken  = generateRefreshToken(tokenPayload);
+
+        return res.status(200).json({
+            success: true,
+            message: "Payment verified. Your professional stylist account is now active!",
+            user: {
+                id: user._id,
+                phoneNumber: user.phoneNumber,
+                email: user.email || null,
+                name: profile.fullName || user.displayName,
+                displayName: profile.fullName || user.displayName,
+                role: "stylist",
+            },
+            accessToken,
+            refreshToken,
+            tokenType: "Bearer",
+            expiresIn: "100d",
+            payment: {
+                razorpayOrderId: razorpay_order_id,
+                razorpayPaymentId: razorpay_payment_id,
+                amount: profile.registrationFee,
+                currency: "INR",
+                paidAt: profile.paymentCompletedAt,
+            },
+        });
+    } catch (err) {
+        console.error("verifyJoiningFee:", err);
+        return res.status(500).json({ success: false, message: "Internal server error", error: err.message });
     }
 };
