@@ -132,28 +132,73 @@ exports.checkProfessional = async (req, res) => {
 
 exports.registerProfessional = async (req, res) => {
     try {
-        const {
-            phoneNumber,
-            firebaseIdToken,
-            fullName,
-            shortBio,
-            specialties,
-            yearsOfExperience,
-            portfolioLink,
-            baseSessionFee,
-            addOnServices,
-            paymentModes,
-            dayAvailability,
-            startTime,
-            endTime,
-            profilePictureUrl,
-        } = req.body;
+        const b = req.body;
 
-        // Required field validation
-        if (!phoneNumber || !firebaseIdToken || !fullName || !shortBio ||
-            !specialties || !yearsOfExperience || !baseSessionFee ||
-            !dayAvailability || !startTime || !endTime) {
-            return res.status(400).json({ success: false, message: "Missing required fields" });
+        // ── Resolve field names: accept both new API names and legacy Flutter names ──
+        const phoneNumber      = b.phoneNumber;
+        const firebaseIdToken  = b.firebaseIdToken;
+
+        // Name: new → fullName, legacy → stylistName / displayName / name
+        const fullName         = b.fullName || b.stylistName || b.displayName || b.name || "";
+
+        // Bio: new → shortBio, legacy → stylistBio / bio
+        const shortBio         = b.shortBio || b.stylistBio || b.bio || "";
+
+        // Specialties: new → specialties, legacy → stylistSkills / skills / categories
+        const specialties      = b.specialties || b.stylistSkills || b.skills || b.categories || [];
+
+        // Experience: new → yearsOfExperience, legacy → stylistExperience / experience
+        const yearsOfExperience = b.yearsOfExperience || b.stylistExperience || b.experience || "";
+
+        // Portfolio: new → portfolioLink (string), legacy → stylistPortfolio (array) / portfolioUrl
+        const portfolioLink    = b.portfolioLink || b.portfolioUrl ||
+                                 (Array.isArray(b.stylistPortfolio) ? b.stylistPortfolio[0] : b.stylistPortfolio) || "";
+
+        // Fee: new → baseSessionFee, legacy → stylistPrice / sessionFee / price
+        const baseSessionFee   = b.baseSessionFee || b.sessionFee ||
+                                 (b.stylistPrice ? `₹${b.stylistPrice}` : "") || "";
+
+        // Add-ons & payments
+        const addOnServices    = b.addOnServices  || b.addons  || [];
+        const paymentModes     = b.paymentModes   || b.payment || [];
+
+        // Availability: new → dayAvailability object, legacy → stylistAvailability string / availability
+        let dayAvailability    = b.dayAvailability || b.availability || null;
+        if (typeof dayAvailability === "string") {
+            // Legacy: just a string like "Mon-Fri" — default all weekdays to true
+            dayAvailability = {
+                Monday: true, Tuesday: true, Wednesday: true,
+                Thursday: true, Friday: true, Saturday: false, Sunday: false,
+            };
+        }
+        if (!dayAvailability) {
+            dayAvailability = {
+                Monday: true, Tuesday: true, Wednesday: true,
+                Thursday: true, Friday: true, Saturday: false, Sunday: false,
+            };
+        }
+
+        const startTime        = b.startTime  || b.workStartTime  || "10:00 AM";
+        const endTime          = b.endTime    || b.workEndTime    || "7:00 PM";
+
+        // Profile picture: new → profilePictureUrl, legacy → stylistImage / profileImage / imageUrl
+        const profilePictureUrl = b.profilePictureUrl || b.stylistImage || b.profileImage || b.imageUrl || "";
+
+        // ── Required field validation ─────────────────────────────────────────
+        const missing = [];
+        if (!phoneNumber)      missing.push("phoneNumber");
+        if (!firebaseIdToken)  missing.push("firebaseIdToken");
+        if (!fullName)         missing.push("fullName (or stylistName)");
+        if (!shortBio)         missing.push("shortBio (or stylistBio)");
+        if (!specialties?.length) missing.push("specialties (or stylistSkills)");
+        if (!yearsOfExperience)   missing.push("yearsOfExperience (or stylistExperience)");
+        if (!baseSessionFee)      missing.push("baseSessionFee (or stylistPrice)");
+
+        if (missing.length) {
+            return res.status(400).json({
+                success: false,
+                message: `Missing required fields: ${missing.join(", ")}`,
+            });
         }
 
         // Verify Firebase token
@@ -189,10 +234,15 @@ exports.registerProfessional = async (req, res) => {
             user.role = "Stylist";
             user.displayName = fullName;
             if (!user.firebaseUid) user.firebaseUid = decoded.uid;
+            // Carry over email if provided in legacy fields
+            if (!user.email && (b.stylistEmail || b.email)) {
+                user.email = b.stylistEmail || b.email;
+            }
         } else {
             user = new User({
                 displayName: fullName,
                 phoneNumber,
+                email: b.stylistEmail || b.email || undefined,
                 firebaseUid: decoded.uid,
                 role: "Stylist",
             });
@@ -202,37 +252,38 @@ exports.registerProfessional = async (req, res) => {
         // Create StylistProfile
         const profile = new StylistProfile({
             userId: user._id,
-            // Legacy required fields (filled with defaults to satisfy schema)
+            // Legacy schema fields (keeps old queries working)
             stylistName: fullName,
             stylistBio: shortBio,
-            stylistEmail: "",
+            stylistEmail: b.stylistEmail || b.email || "",
             stylistPhone: phoneNumber,
-            stylistAddress: "",
-            stylistCity: "",
-            stylistState: "",
-            stylistPincode: "",
-            stylistCountry: "India",
-            stylistImage: profilePictureUrl || "",
+            stylistAddress: b.stylistAddress || "",
+            stylistCity: b.stylistCity || "",
+            stylistState: b.stylistState || "",
+            stylistPincode: b.stylistPincode || "",
+            stylistCountry: b.stylistCountry || "India",
+            stylistImage: profilePictureUrl,
             stylistExperience: yearsOfExperience,
-            stylistEducation: "",
-            stylistSkills: specialties || [],
+            stylistEducation: b.stylistEducation || "",
+            stylistSkills: Array.isArray(specialties) ? specialties : [specialties],
             stylistPortfolio: portfolioLink ? [portfolioLink] : [],
             stylistAvailability: "Available",
+            stylistPrice: b.stylistPrice || 0,
             // New professional portal fields
             fullName,
             shortBio,
-            specialties: specialties || [],
+            specialties: Array.isArray(specialties) ? specialties : [specialties],
             yearsOfExperience,
-            portfolioLink: portfolioLink || "",
+            portfolioLink,
             baseSessionFee,
-            addOnServices: addOnServices || [],
-            paymentModes: paymentModes || [],
-            profilePictureUrl: profilePictureUrl || "",
+            addOnServices: Array.isArray(addOnServices) ? addOnServices : [],
+            paymentModes:  Array.isArray(paymentModes)  ? paymentModes  : [],
+            profilePictureUrl,
             professionalAvailability: {
-                dayAvailability: dayAvailability || {},
+                dayAvailability,
                 startTime,
                 endTime,
-                breaks: [],
+                breaks: b.breaks || [],
             },
             applicationStatus: "approved",
             isApproved: true,
