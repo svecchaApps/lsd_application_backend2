@@ -151,14 +151,16 @@ router.post(
     stylistController.markAsTopStylist
 );
 
-// Stylist availability routes
+// Stylist availability routes (stylist resolved from JWT user — do not trust body/URL stylist id)
 router.post(
     "/availability",
+    authMiddleware,
     stylistController.createOrUpdateAvailability
 );
 
 router.post(
     "/availability/:stylistId",
+    authMiddleware,
     stylistController.createOrUpdateAvailability
 );
 
@@ -170,6 +172,13 @@ router.get(
 router.get(
     "/availability",
     stylistController.getAvailabilityWithStylistInfo
+);
+
+// Professional portal: same body as PUT /:stylistId/availability; stylist from JWT only
+router.put(
+    "/availability",
+    authMiddleware,
+    professionalStylistController.updateAvailability
 );
 
 // ── Professional Dashboard ─────────────────────────────────────────────────

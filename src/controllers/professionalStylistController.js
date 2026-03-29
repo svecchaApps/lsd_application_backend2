@@ -720,8 +720,14 @@ exports.updateProfile = async (req, res) => {
 
 exports.updateAvailability = async (req, res) => {
     try {
-        assertStylistOwner(req, req.params.stylistId);
-        const profile = await findProfileByUserId(req.params.stylistId);
+        const userIdFromToken = req.user._id || req.user.id;
+        if (!userIdFromToken) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+        const profile = await findProfileByUserId(userIdFromToken);
 
         const { dayAvailability, startTime, endTime, breaks } = req.body;
 

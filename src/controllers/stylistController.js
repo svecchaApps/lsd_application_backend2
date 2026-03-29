@@ -2167,54 +2167,36 @@ exports.markAsTopStylist = async (req, res) => {
     }
 };
 
-// Create or update stylist availability
+// Create or update stylist availability (caller must be authenticated; stylist comes from JWT user id only)
 exports.createOrUpdateAvailability = async (req, res) => {
     try {
-        // Get stylistId from params, body, or user (if authenticated)
-        const { stylistId } = req.params;
-        const stylistIdFromBody = req.body.stylistId;
-        const userIdFromAuth = req.user ? req.user._id : null;
-
-        let targetStylistId = null;
-        let targetStylistProfile = null;
-
-        // Priority: params > body > authenticated user
-        if (stylistId) {
-            if (!mongoose.Types.ObjectId.isValid(stylistId)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid stylist ID format"
-                });
-            }
-            targetStylistProfile = await StylistProfile.findById(stylistId);
-            if (targetStylistProfile) {
-                targetStylistId = targetStylistProfile._id;
-            }
-        } else if (stylistIdFromBody) {
-            if (!mongoose.Types.ObjectId.isValid(stylistIdFromBody)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid stylist ID format"
-                });
-            }
-            targetStylistProfile = await StylistProfile.findById(stylistIdFromBody);
-            if (targetStylistProfile) {
-                targetStylistId = targetStylistProfile._id;
-            }
-        } else if (userIdFromAuth) {
-            // Find stylist profile by userId
-            targetStylistProfile = await StylistProfile.findOne({ userId: userIdFromAuth });
-            if (targetStylistProfile) {
-                targetStylistId = targetStylistProfile._id;
-            }
-        }
-
-        if (!targetStylistId || !targetStylistProfile) {
-            return res.status(404).json({
+        if (!req.user) {
+            return res.status(401).json({
                 success: false,
-                message: "Stylist profile not found"
+                message: "Authentication required"
             });
         }
+
+        const userIdFromToken = req.user._id || req.user.id;
+        if (!userIdFromToken) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid token: missing user id"
+            });
+        }
+
+        const targetStylistProfile = await StylistProfile.findOne({
+            userId: userIdFromToken
+        });
+
+        if (!targetStylistProfile) {
+            return res.status(404).json({
+                success: false,
+                message: "Stylist profile not found for this user"
+            });
+        }
+
+        const targetStylistId = targetStylistProfile._id;
 
         const {
             weeklySchedule,
