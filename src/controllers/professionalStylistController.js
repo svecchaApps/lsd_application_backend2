@@ -17,6 +17,96 @@ const STYLIST_TOKEN_EXPIRY = "100d";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Parse a numeric price from strings like "₹1500 / 90 min" → 1500
+ * Falls back to the raw value if it's already a number.
+ */
+const parsePriceFromFee = (feeStr) => {
+    if (!feeStr) return 0;
+    if (typeof feeStr === "number") return feeStr;
+    const match = feeStr.replace(/,/g, "").match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
+};
+
+/**
+ * Build a human-readable availability string from the day map + hours.
+ * e.g. "Mon, Tue, Thu, Fri, Sat: 10:00 AM - 7:00 PM"
+ */
+const formatAvailabilityString = (dayAvailability, startTime, endTime) => {
+    if (!dayAvailability || typeof dayAvailability !== "object") {
+        return startTime && endTime ? `${startTime} - ${endTime}` : "Available";
+    }
+    const DAY_SHORT = { Monday:"Mon", Tuesday:"Tue", Wednesday:"Wed", Thursday:"Thu", Friday:"Fri", Saturday:"Sat", Sunday:"Sun" };
+    const activeDays = Object.entries(dayAvailability)
+        .filter(([, v]) => v === true)
+        .map(([day]) => DAY_SHORT[day] || day);
+    if (!activeDays.length) return "Not Available";
+    const hours = startTime && endTime ? `: ${startTime} - ${endTime}` : "";
+    return `${activeDays.join(", ")}${hours}`;
+};
+
+/**
+ * Ensure portfolio is stored as an array of URLs only.
+ * Filters out plain text (non-URL) values.
+ */
+const sanitisePortfolio = (value) => {
+    if (!value) return [];
+    const arr = Array.isArray(value) ? value : [value];
+    return arr.filter((v) => typeof v === "string" && v.startsWith("http"));
+};
+
+/**
+ * Build the full StylistProfile field object from resolved registration data.
+ * Used by both registerProfessional and initiateJoiningFee to stay in sync.
+ */
+const buildProfileFields = ({ user, b, fullName, shortBio, specialties, yearsOfExperience,
+    portfolioLink, baseSessionFee, addOnServices, paymentModes, profilePictureUrl,
+    dayAvailability, startTime, endTime, applicationStatus, isApproved, approvalStatus,
+    paymentStatus, registrationFee }) => ({
+    userId: user._id,
+    // ── Legacy fields (kept for backward compatibility with old app logic) ──
+    stylistName: fullName,
+    stylistBio: shortBio,
+    stylistEmail: b.stylistEmail || b.email || "",
+    stylistPhone: b.phoneNumber,
+    stylistAddress: b.stylistAddress || "",
+    stylistCity: b.stylistCity || "",
+    stylistState: b.stylistState || "",
+    stylistPincode: b.stylistPincode || "",
+    stylistCountry: b.stylistCountry || "India",
+    stylistImage: profilePictureUrl,
+    stylistExperience: yearsOfExperience,
+    stylistEducation: b.stylistEducation || "",
+    stylistSkills: Array.isArray(specialties) ? specialties : [specialties].filter(Boolean),
+    stylistPortfolio: sanitisePortfolio(b.stylistPortfolio || portfolioLink),
+    stylistAvailability: formatAvailabilityString(dayAvailability, startTime, endTime),
+    stylistPrice: parsePriceFromFee(baseSessionFee) || b.stylistPrice || 0,
+    stylistRating: 0,
+    stylistReviews: [],
+    // ── New professional portal fields ──────────────────────────────────────
+    fullName,
+    shortBio,
+    specialties: Array.isArray(specialties) ? specialties : [specialties].filter(Boolean),
+    yearsOfExperience,
+    portfolioLink: typeof portfolioLink === "string" && portfolioLink.startsWith("http") ? portfolioLink : "",
+    baseSessionFee,
+    addOnServices: Array.isArray(addOnServices) ? addOnServices : [],
+    paymentModes: Array.isArray(paymentModes) ? paymentModes : [],
+    profilePictureUrl,
+    professionalAvailability: {
+        dayAvailability: dayAvailability || {},
+        startTime,
+        endTime,
+        breaks: b.breaks || [],
+    },
+    // ── Status ──────────────────────────────────────────────────────────────
+    applicationStatus,
+    isApproved,
+    approvalStatus,
+    registrationFee,
+    paymentStatus,
+});
+
 const generateToken = (payload) =>
     jwt.sign(payload, JWT_SECRET, { expiresIn: STYLIST_TOKEN_EXPIRY });
 
@@ -254,45 +344,16 @@ exports.registerProfessional = async (req, res) => {
         await user.save();
 
         // Create StylistProfile
-        const profile = new StylistProfile({
-            userId: user._id,
-            // Legacy schema fields (keeps old queries working)
-            stylistName: fullName,
-            stylistBio: shortBio,
-            stylistEmail: b.stylistEmail || b.email || "",
-            stylistPhone: phoneNumber,
-            stylistAddress: b.stylistAddress || "",
-            stylistCity: b.stylistCity || "",
-            stylistState: b.stylistState || "",
-            stylistPincode: b.stylistPincode || "",
-            stylistCountry: b.stylistCountry || "India",
-            stylistImage: profilePictureUrl,
-            stylistExperience: yearsOfExperience,
-            stylistEducation: b.stylistEducation || "",
-            stylistSkills: Array.isArray(specialties) ? specialties : [specialties],
-            stylistPortfolio: portfolioLink ? [portfolioLink] : [],
-            stylistAvailability: "Available",
-            stylistPrice: b.stylistPrice || 0,
-            // New professional portal fields
-            fullName,
-            shortBio,
-            specialties: Array.isArray(specialties) ? specialties : [specialties],
-            yearsOfExperience,
-            portfolioLink,
-            baseSessionFee,
-            addOnServices: Array.isArray(addOnServices) ? addOnServices : [],
-            paymentModes:  Array.isArray(paymentModes)  ? paymentModes  : [],
-            profilePictureUrl,
-            professionalAvailability: {
-                dayAvailability,
-                startTime,
-                endTime,
-                breaks: b.breaks || [],
-            },
+        const profile = new StylistProfile(buildProfileFields({
+            user, b, fullName, shortBio, specialties, yearsOfExperience,
+            portfolioLink, baseSessionFee, addOnServices, paymentModes,
+            profilePictureUrl, dayAvailability, startTime, endTime,
             applicationStatus: "approved",
             isApproved: true,
             approvalStatus: "approved",
-        });
+            paymentStatus: "pending",
+            registrationFee: JOINING_FEE,
+        }));
 
         await profile.save();
 
@@ -782,41 +843,16 @@ exports.initiateJoiningFee = async (req, res) => {
         await StylistProfile.deleteOne({ userId: user._id, applicationStatus: { $in: ["payment_pending", "draft"] } });
 
         // Create pending StylistProfile (not activated until payment verified)
-        const profile = new StylistProfile({
-            userId: user._id,
-            stylistName: fullName,
-            stylistBio: shortBio,
-            stylistEmail: b.stylistEmail || b.email || "",
-            stylistPhone: phoneNumber,
-            stylistAddress: b.stylistAddress || "",
-            stylistCity: b.stylistCity || "",
-            stylistState: b.stylistState || "",
-            stylistPincode: b.stylistPincode || "",
-            stylistCountry: b.stylistCountry || "India",
-            stylistImage: profilePictureUrl,
-            stylistExperience: yearsOfExperience,
-            stylistEducation: b.stylistEducation || "",
-            stylistSkills: Array.isArray(specialties) ? specialties : [specialties],
-            stylistPortfolio: portfolioLink ? [portfolioLink] : [],
-            stylistAvailability: "Available",
-            stylistPrice: b.stylistPrice || 0,
-            fullName,
-            shortBio,
-            specialties: Array.isArray(specialties) ? specialties : [specialties],
-            yearsOfExperience,
-            portfolioLink,
-            baseSessionFee,
-            addOnServices: Array.isArray(addOnServices) ? addOnServices : [],
-            paymentModes:  Array.isArray(paymentModes)  ? paymentModes  : [],
-            profilePictureUrl,
-            professionalAvailability: { dayAvailability, startTime, endTime, breaks: b.breaks || [] },
-            // Payment fields
+        const profile = new StylistProfile(buildProfileFields({
+            user, b, fullName, shortBio, specialties, yearsOfExperience,
+            portfolioLink, baseSessionFee, addOnServices, paymentModes,
+            profilePictureUrl, dayAvailability, startTime, endTime,
             applicationStatus: "payment_pending",
             isApproved: false,
             approvalStatus: "pending",
-            registrationFee: joiningFee,
             paymentStatus: "pending",
-        });
+            registrationFee: joiningFee,
+        }));
         await profile.save();
 
         // Create Razorpay order
