@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const {
     RtcTokenBuilder,
     RtcRole,
@@ -23,17 +24,15 @@ const {
     }
   
     /**
-     * Convert Mongo ObjectId → numeric UID for RTC
-     * Agora RTC prefers numbers
+     * Stable numeric UID per user for RTC (avoids collisions from last-8-hex slice).
      */
     static generateNumericUid(objectId) {
       if (!objectId) {
         throw new Error("ObjectId is required for UID generation");
       }
-      const uid = parseInt(objectId.toString().slice(-8), 16);
-      if (isNaN(uid)) {
-        throw new Error("Failed to generate numeric UID from ObjectId");
-      }
+      const hash = crypto.createHash("sha256").update(objectId.toString()).digest();
+      let uid = hash.readUInt32BE(0) % 2147483646;
+      if (uid < 1) uid = 1;
       return uid;
     }
   
@@ -51,7 +50,7 @@ const {
      * ---------------------------------- */
   
     /**
-     * Single channel per booking
+     * Single channel per booking — always use human-readable bookingId (BOOK_…), not Mongo _id.
      */
     static generateChannelName(bookingIdString) {
       return `session_${bookingIdString}`;
@@ -175,7 +174,10 @@ const {
           throw new Error("Invalid end time calculation");
         }
 
-        const expiresAt = Math.floor(end.getTime() / 1000);
+        const nowSec = Math.floor(Date.now() / 1000);
+        const bookingEndSec = Math.floor(end.getTime() / 1000);
+        const MIN_TTL_SEC = 3600;
+        const expiresAt = Math.max(bookingEndSec, nowSec + MIN_TTL_SEC);
 
         if (!expiresAt || isNaN(expiresAt)) {
           throw new Error("Invalid expiration time");

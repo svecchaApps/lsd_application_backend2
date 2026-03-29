@@ -849,8 +849,15 @@ class StylistBookingController {
                 });
             }
 
+            if (!["completed", "test"].includes(booking.paymentStatus)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Payment not completed"
+                });
+            }
+
             // Check booking status
-            if (booking.status !== 'confirmed') {
+            if (!['confirmed', 'in_progress'].includes(booking.status)) {
                 return res.status(400).json({
                     success: false,
                     message: `Video call cannot be started. Booking status: ${booking.status}`
@@ -872,14 +879,12 @@ class StylistBookingController {
                 });
             }
 
-            // Generate Agora tokens
-            const channelName = AgoraService.generateChannelName(
-                bookingId,
-                booking.stylistId._id,
-                booking.userId._id
-            );
-
-            const tokenResult = AgoraService.generateTokens(channelName, userId.toString());
+            const role = isUser ? "user" : "stylist";
+            const tokenResult = AgoraService.generateBookingSessionTokens({
+                booking,
+                userId,
+                role
+            });
 
             if (!tokenResult.success) {
                 return res.status(500).json({
@@ -889,28 +894,43 @@ class StylistBookingController {
                 });
             }
 
-            // Update booking status
-            booking.videoCallStatus = 'initiated';
-            booking.agoraChannelName = channelName;
-            booking.agoraToken = tokenResult.data.rtcToken.token;
-            booking.videoCallStartedAt = new Date();
-            booking.status = 'in_progress';
+            const d = tokenResult.data;
+
+            booking.videoCallStatus = "in_progress";
+            booking.agoraChannelName = d.channelName;
+            booking.agoraAppId = d.appId;
+            booking.agoraToken = d.rtcToken;
+            if (!booking.videoCallStartedAt) {
+                booking.videoCallStartedAt = new Date();
+            }
+            booking.status = "in_progress";
             booking.updatedAt = new Date();
 
             await booking.save();
 
             return res.status(200).json({
                 success: true,
-                message: "Video call initiated successfully",
+                message: "Video call initiated successfully — same channel as POST /booking-video/.../join-session",
                 data: {
-                    bookingId: booking._id,
-                    channelName: channelName,
-                    appId: process.env.AGORA_APP_ID,
-                    rtcToken: tokenResult.data.rtcToken.token,
-                    rtmToken: tokenResult.data.rtmToken.token,
-                    uid: userId.toString(),
-                    expirationTime: tokenResult.data.expirationTime,
-                    expiresIn: 3600
+                    bookingMongoId: booking._id,
+                    bookingIdString: booking.bookingId,
+                    ...d,
+                    connection: {
+                        sameChannelForVideoAndChat: true,
+                        channelName: d.channelName,
+                        video: {
+                            appId: d.appId,
+                            channelName: d.channelName,
+                            token: d.rtcToken,
+                            uid: d.rtcUid
+                        },
+                        chat: {
+                            appId: d.appId,
+                            channelName: d.channelName,
+                            token: d.rtmToken,
+                            uid: d.rtmUid
+                        }
+                    }
                 }
             });
 

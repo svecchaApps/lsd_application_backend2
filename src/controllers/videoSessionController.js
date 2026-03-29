@@ -135,6 +135,7 @@ exports.joinSession = async (req, res) => {
         message:
           "Session joined. Use connection.video for RTC (live call) and connection.chat for RTM on the same channel.",
         data: {
+          bookingIdString: booking.bookingId,
           ...d,
           connection: {
             sameChannelForVideoAndChat: true,
