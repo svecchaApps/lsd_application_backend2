@@ -125,13 +125,11 @@ const verifyFirebaseHeader = async (authHeader) => {
     }
 };
 
-/** Assert the JWT id in req.user matches the :stylistId path param. */
-const assertStylistOwner = (req, stylistId) => {
-    if (req.user.id.toString() !== stylistId.toString()) {
-        const err = new Error("Forbidden");
-        err.status = 403;
-        throw err;
-    }
+/** Mongo user id from JWT (`id` or `_id` depending on token type). */
+const getAuthUserId = (req) => {
+    if (!req.user) return null;
+    const v = req.user._id ?? req.user.id;
+    return v != null ? v : null;
 };
 
 /** Find StylistProfile by user._id (stylistId in URL = User._id per spec). */
@@ -392,8 +390,11 @@ exports.registerProfessional = async (req, res) => {
 
 exports.getDashboardStats = async (req, res) => {
     try {
-        assertStylistOwner(req, req.params.stylistId);
-        const profile = await findProfileByUserId(req.params.stylistId);
+        const userId = getAuthUserId(req);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        const profile = await findProfileByUserId(userId);
 
         const profileId = profile._id;
         const now = new Date();
@@ -441,6 +442,7 @@ exports.getDashboardStats = async (req, res) => {
             },
         });
     } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
         if (err.status === 403) return res.status(403).json({ success: false, message: err.message });
         if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
         console.error("getDashboardStats:", err);
@@ -452,8 +454,11 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getStylistBookings = async (req, res) => {
     try {
-        assertStylistOwner(req, req.params.stylistId);
-        const profile = await findProfileByUserId(req.params.stylistId);
+        const userId = getAuthUserId(req);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        const profile = await findProfileByUserId(userId);
 
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
@@ -484,6 +489,7 @@ exports.getStylistBookings = async (req, res) => {
             },
         });
     } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
         if (err.status === 403) return res.status(403).json({ success: false, message: err.message });
         if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
         console.error("getStylistBookings:", err);
@@ -495,8 +501,11 @@ exports.getStylistBookings = async (req, res) => {
 
 exports.getStylistClients = async (req, res) => {
     try {
-        assertStylistOwner(req, req.params.stylistId);
-        const profile = await findProfileByUserId(req.params.stylistId);
+        const userId = getAuthUserId(req);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        const profile = await findProfileByUserId(userId);
 
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
@@ -563,6 +572,7 @@ exports.getStylistClients = async (req, res) => {
             },
         });
     } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
         if (err.status === 403) return res.status(403).json({ success: false, message: err.message });
         if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
         console.error("getStylistClients:", err);
@@ -591,7 +601,11 @@ exports.updateBookingStatus = async (req, res) => {
         }
 
         // Verify the requesting stylist owns this booking
-        const profile = await StylistProfile.findOne({ userId: req.user.id });
+        const uid = getAuthUserId(req);
+        if (!uid) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        const profile = await StylistProfile.findOne({ userId: uid });
         if (!profile || booking.stylistId.toString() !== profile._id.toString()) {
             return res.status(403).json({
                 success: false,
@@ -664,8 +678,11 @@ exports.updateBookingStatus = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
     try {
-        assertStylistOwner(req, req.params.stylistId);
-        const profile = await findProfileByUserId(req.params.stylistId);
+        const userId = getAuthUserId(req);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        const profile = await findProfileByUserId(userId);
 
         const updatable = [
             "fullName", "shortBio", "specialties", "yearsOfExperience",
@@ -681,7 +698,7 @@ exports.updateProfile = async (req, res) => {
         if (req.body.fullName) {
             profile.stylistName = req.body.fullName;
             // Also update User displayName
-            await User.findByIdAndUpdate(req.params.stylistId, {
+            await User.findByIdAndUpdate(userId, {
                 displayName: req.body.fullName,
             });
         }
@@ -720,7 +737,7 @@ exports.updateProfile = async (req, res) => {
 
 exports.updateAvailability = async (req, res) => {
     try {
-        const userIdFromToken = req.user._id || req.user.id;
+        const userIdFromToken = getAuthUserId(req);
         if (!userIdFromToken) {
             return res.status(401).json({
                 success: false,

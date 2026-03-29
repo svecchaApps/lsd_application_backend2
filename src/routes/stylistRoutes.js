@@ -186,13 +186,13 @@ router.put(
 
 router.get(
     "/:stylistId/bookings",
-    // authMiddleware,
+    authMiddleware,
     professionalStylistController.getStylistBookings
 );
 
 router.get(
     "/:stylistId/clients",
-    // authMiddleware,
+    authMiddleware,
     professionalStylistController.getStylistClients
 );
 
