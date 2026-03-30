@@ -12,12 +12,20 @@ const {
   getUserNotifications,
   getUnreadCount,
   markNotificationsRead,
+  getMyNotifications,
+  getMyUnreadNotificationCount,
+  markMyNotificationsRead,
 } = require("../controllers/notificationController");
 const { authMiddleware, roleMiddleware } = require("../middleware/authMiddleware");
 
 router.put("/update-fcm-token", updateFcmToken);
 
-// User notifications inbox (stylist app)
+// Authenticated inbox (JWT user id — stylist or consumer)
+router.get("/me", authMiddleware, getMyNotifications);
+router.get("/me/unread-count", authMiddleware, getMyUnreadNotificationCount);
+router.patch("/me/mark-read", authMiddleware, markMyNotificationsRead);
+
+// User notifications inbox (legacy: pass userId in URL)
 router.get("/user/:userId", getUserNotifications);
 
 // Unread badge count

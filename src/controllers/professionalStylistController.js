@@ -450,6 +450,91 @@ exports.getDashboardStats = async (req, res) => {
     }
 };
 
+// ─── GET /stylist/me/revenue ────────────────────────────────────────────────
+// Total revenue from completed paid bookings for the authenticated stylist.
+
+exports.getBookingRevenue = async (req, res) => {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        const profile = await findProfileByUserId(userId);
+        const stylistProfileId = profile._id;
+
+        const baseMatch = {
+            stylistId: stylistProfileId,
+            status: "completed",
+            paymentStatus: { $in: ["completed", "test"] },
+        };
+
+        const [totalsAgg, monthlyAgg] = await Promise.all([
+            StylistBooking.aggregate([
+                { $match: baseMatch },
+                {
+                    $group: {
+                        _id: null,
+                        totalRevenue: {
+                            $sum: {
+                                $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }],
+                            },
+                        },
+                        completedBookingsCount: { $sum: 1 },
+                    },
+                },
+            ]),
+            StylistBooking.aggregate([
+                { $match: baseMatch },
+                {
+                    $addFields: {
+                        revenueDate: {
+                            $ifNull: ["$completedAt", { $ifNull: ["$paymentCompletedAt", "$updatedAt"] }],
+                        },
+                    },
+                },
+                { $match: { revenueDate: { $ne: null } } },
+                {
+                    $group: {
+                        _id: {
+                            year: { $year: "$revenueDate" },
+                            month: { $month: "$revenueDate" },
+                        },
+                        revenue: {
+                            $sum: {
+                                $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }],
+                            },
+                        },
+                        bookings: { $sum: 1 },
+                    },
+                },
+                { $sort: { "_id.year": -1, "_id.month": -1 } },
+                { $limit: 24 },
+            ]),
+        ]);
+
+        const t = totalsAgg[0] || {};
+        return res.status(200).json({
+            success: true,
+            data: {
+                currency: "INR",
+                totalRevenue: t.totalRevenue || 0,
+                completedBookingsCount: t.completedBookingsCount || 0,
+                byMonth: monthlyAgg.map((row) => ({
+                    year: row._id.year,
+                    month: row._id.month,
+                    revenue: row.revenue,
+                    bookings: row.bookings,
+                })),
+            },
+        });
+    } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
+        if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
+        console.error("getBookingRevenue:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
 // ─── GET /stylist/:stylistId/bookings ───────────────────────────────────────
 
 exports.getStylistBookings = async (req, res) => {

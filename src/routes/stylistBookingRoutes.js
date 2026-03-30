@@ -13,6 +13,12 @@ router.get(
     stylistBookingController.getAvailableSlots
 );
 
+// Public: ratings + reviews for a stylist (StylistProfile _id)
+router.get(
+    "/stylist/:stylistId/reviews",
+    stylistBookingController.getStylistReviews
+);
+
 // User routes (authentication required)
 router.post(
     "/create",
@@ -56,6 +62,12 @@ router.get(
     "/user-bookings",
     authMiddleware,
     stylistBookingController.getUserBookings
+);
+
+router.get(
+    "/past-sessions",
+    authMiddleware,
+    stylistBookingController.getPastSessions
 );
 
 // Public route - accepts userId as parameter

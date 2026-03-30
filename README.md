@@ -129,6 +129,7 @@ src/
 | [`PROFESSIONAL_STYLIST_INTEGRATION.md`](./PROFESSIONAL_STYLIST_INTEGRATION.md) | Professional stylist app |
 | [`STYLIST_JOINING_FEE_INTEGRATION.md`](./STYLIST_JOINING_FEE_INTEGRATION.md) | Joining fee flow |
 | [`STYLIST_APP_API_CHECKLIST.md`](./STYLIST_APP_API_CHECKLIST.md) | API checklist for stylist app |
+| [`STYLIST_USER_BOOKING_API.md`](./STYLIST_USER_BOOKING_API.md) | Reviews, past sessions, top stylists, user bookings |
 
 ---
 

@@ -1394,6 +1394,192 @@ class StylistBookingController {
     }
 
     /**
+     * Get past sessions for authenticated user
+     * GET /stylist-booking/past-sessions
+     */
+    static async getPastSessions(req, res) {
+        try {
+            const userId = req.user?._id || req.user?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Unauthorized"
+                });
+            }
+
+            const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+            const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
+            const skip = (page - 1) * limit;
+            const now = new Date();
+
+            const query = {
+                userId,
+                $or: [
+                    { status: { $in: ["completed", "cancelled", "no_show"] } },
+                    { scheduledDate: { $lt: now }, status: { $nin: ["pending", "confirmed", "in_progress"] } }
+                ]
+            };
+
+            const [sessions, total] = await Promise.all([
+                StylistBooking.find(query)
+                    .populate(
+                        "stylistId",
+                        "stylistName stylistImage stylistBio stylistCity stylistState stylistPhone stylistEmail stylistRating"
+                    )
+                    .sort({ scheduledDate: -1, scheduledTime: -1 })
+                    .skip(skip)
+                    .limit(limit),
+                StylistBooking.countDocuments(query)
+            ]);
+
+            const formatted = sessions.map((booking) => {
+                const scheduledDateTime = new Date(booking.scheduledDate);
+                if (booking.scheduledTime && booking.scheduledTime.includes(":")) {
+                    const [h, m] = booking.scheduledTime.split(":").map(Number);
+                    scheduledDateTime.setHours(h || 0, m || 0, 0, 0);
+                }
+                return {
+                    ...booking.toObject(),
+                    scheduledDateTime,
+                    canReview:
+                        booking.status === "completed" &&
+                        (booking.userRating === null || booking.userRating === undefined)
+                };
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: "Past sessions retrieved successfully",
+                data: {
+                    sessions: formatted,
+                    pagination: {
+                        page,
+                        limit,
+                        total,
+                        totalPages: Math.ceil(total / limit) || 1,
+                        hasNextPage: skip + formatted.length < total,
+                        hasPrevPage: page > 1
+                    }
+                }
+            });
+        } catch (error) {
+            console.error("Get past sessions error:", error);
+            return res.status(500).json({
+                success: false,
+                message: "Failed to get past sessions",
+                error: error.message
+            });
+        }
+    }
+
+    /**
+     * Public: ratings summary + paginated reviews for a stylist (StylistProfile _id)
+     * GET /stylist-booking/stylist/:stylistId/reviews
+     */
+    static async getStylistReviews(req, res) {
+        try {
+            const { stylistId } = req.params;
+            const page = parseInt(req.query.page, 10) || 1;
+            const limit = Math.min(parseInt(req.query.limit, 10) || 10, 50);
+            const skip = (page - 1) * limit;
+
+            if (!mongoose.Types.ObjectId.isValid(stylistId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid stylist ID format"
+                });
+            }
+
+            const profile = await StylistProfile.findById(stylistId).select(
+                "stylistName stylistImage stylistRating bookingStats"
+            );
+
+            if (!profile) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Stylist not found"
+                });
+            }
+
+            const filter = {
+                stylistId,
+                userRating: { $exists: true, $ne: null }
+            };
+
+            const [reviews, total, distAgg] = await Promise.all([
+                StylistBooking.find(filter)
+                    .populate("userId", "displayName profilePicture")
+                    .sort({ completedAt: -1, updatedAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .select(
+                        "userRating userReview completedAt updatedAt bookingTitle bookingType"
+                    )
+                    .lean(),
+                StylistBooking.countDocuments(filter),
+                StylistBooking.aggregate([
+                    { $match: filter },
+                    { $group: { _id: "$userRating", count: { $sum: 1 } } }
+                ])
+            ]);
+
+            const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+            distAgg.forEach((d) => {
+                const k = d._id;
+                if (k >= 1 && k <= 5) distribution[k] = d.count;
+            });
+
+            const avgFromProfile =
+                profile.stylistRating ??
+                profile.bookingStats?.averageRating ??
+                0;
+
+            return res.status(200).json({
+                success: true,
+                data: {
+                    stylist: {
+                        _id: profile._id,
+                        stylistName: profile.stylistName,
+                        stylistImage: profile.stylistImage,
+                        averageRating: Number(avgFromProfile) || 0,
+                        totalReviews: total
+                    },
+                    ratingDistribution: distribution,
+                    reviews: reviews.map((r) => ({
+                        bookingId: r._id,
+                        bookingTitle: r.bookingTitle,
+                        bookingType: r.bookingType,
+                        rating: r.userRating,
+                        review: r.userReview || "",
+                        completedAt: r.completedAt,
+                        client: r.userId
+                            ? {
+                                  displayName: r.userId.displayName || "Client",
+                                  profilePicture: r.userId.profilePicture || null
+                              }
+                            : { displayName: "Client", profilePicture: null }
+                    })),
+                    pagination: {
+                        page,
+                        limit,
+                        total,
+                        totalPages: Math.ceil(total / limit) || 1,
+                        hasNextPage: skip + reviews.length < total,
+                        hasPrevPage: page > 1
+                    }
+                }
+            });
+        } catch (error) {
+            console.error("getStylistReviews error:", error);
+            return res.status(500).json({
+                success: false,
+                message: "Failed to load reviews",
+                error: error.message
+            });
+        }
+    }
+
+    /**
      * Submit review and rating for a completed booking
      * POST /stylist-booking/:bookingId/review
      */
@@ -1401,7 +1587,14 @@ class StylistBookingController {
         try {
             const { bookingId } = req.params;
             const { rating, review } = req.body;
-            const userId = req.user._id;
+            const userId = req.user._id || req.user.id;
+
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Unauthorized"
+                });
+            }
 
             if (!mongoose.Types.ObjectId.isValid(bookingId)) {
                 return res.status(400).json({
@@ -1410,7 +1603,12 @@ class StylistBookingController {
                 });
             }
 
-            if (!rating || typeof rating !== "number" || rating < 1 || rating > 5) {
+            const ratingNum = Number(rating);
+            if (
+                !Number.isFinite(ratingNum) ||
+                ratingNum < 1 ||
+                ratingNum > 5
+            ) {
                 return res.status(400).json({
                     success: false,
                     message: "Rating must be a number between 1 and 5"
@@ -1440,20 +1638,18 @@ class StylistBookingController {
                 });
             }
 
-            if (booking.userRating) {
+            if (booking.userRating != null && booking.userRating !== undefined) {
                 return res.status(400).json({
                     success: false,
                     message: "Review already submitted for this booking"
                 });
             }
 
-            booking.userRating = rating;
-            booking.userReview = review || "";
+            booking.userRating = ratingNum;
+            booking.userReview = typeof review === "string" ? review.trim().slice(0, 2000) : "";
             booking.updatedAt = new Date();
             await booking.save();
 
-            // Recalculate stylist average rating
-            const StylistProfile = require("../models/stylistProfile");
             const ratedBookings = await StylistBooking.find({
                 stylistId: booking.stylistId,
                 userRating: { $exists: true, $ne: null }
@@ -1463,8 +1659,12 @@ class StylistBookingController {
                 const avgRating =
                     ratedBookings.reduce((sum, b) => sum + b.userRating, 0) /
                     ratedBookings.length;
+                const rounded = parseFloat(avgRating.toFixed(1));
                 await StylistProfile.findByIdAndUpdate(booking.stylistId, {
-                    stylistRating: parseFloat(avgRating.toFixed(1))
+                    $set: {
+                        stylistRating: rounded,
+                        "bookingStats.averageRating": rounded
+                    }
                 });
             }
 
@@ -1474,7 +1674,18 @@ class StylistBookingController {
                 data: {
                     bookingId: booking._id,
                     rating: booking.userRating,
-                    review: booking.userReview
+                    review: booking.userReview,
+                    stylistAverageRating:
+                        ratedBookings.length > 0
+                            ? parseFloat(
+                                  (
+                                      ratedBookings.reduce(
+                                          (sum, b) => sum + b.userRating,
+                                          0
+                                      ) / ratedBookings.length
+                                  ).toFixed(1)
+                              )
+                            : ratingNum
                 }
             });
 

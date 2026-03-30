@@ -54,6 +54,12 @@ router.get(
     stylistController.getTopStylists
 );
 
+// Dedicated top stylist endpoint for frontend leaderboard integration
+router.get(
+    "/top-stylists",
+    stylistController.getTopStylists
+);
+
 router.get(
     "/categories",
     stylistController.getStylistCategories
@@ -179,6 +185,18 @@ router.put(
     "/availability",
     authMiddleware,
     professionalStylistController.updateAvailability
+);
+
+// Authenticated stylist (JWT user id only — must be registered before /:stylistId routes)
+router.get(
+    "/me/revenue",
+    authMiddleware,
+    professionalStylistController.getBookingRevenue
+);
+router.put(
+    "/me/profile",
+    authMiddleware,
+    professionalStylistController.updateProfile
 );
 
 // ── Professional Dashboard ─────────────────────────────────────────────────

@@ -2,6 +2,12 @@ const Notifications = require("../models/notificationsModel");
 const User = require("../models/userModel");
 const { admin } = require("../config/firebaseService");
 
+const getAuthUserIdFromReq = (req) => {
+  if (!req.user) return null;
+  const v = req.user._id ?? req.user.id;
+  return v != null ? v : null;
+};
+
 // Create a new order notification
 exports.sendFcmNotification = async (fcmToken, title, body) => {
   try {
@@ -290,6 +296,116 @@ exports.updateFcmToken = async (req, res) => {
   }
 };
 
+
+/**
+ * Authenticated notification inbox (stylist or end-user). userId comes from JWT only.
+ * GET /notification/me?page&limit&seen&notificationType
+ */
+exports.getMyNotifications = async (req, res) => {
+  try {
+    const userId = getAuthUserIdFromReq(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { page = 1, limit = 20, seen, notificationType } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = { userId };
+    if (seen === "true") query.seen = true;
+    if (seen === "false") query.seen = false;
+    if (notificationType && typeof notificationType === "string") {
+      query.notificationType = notificationType;
+    }
+
+    const [notifications, total] = await Promise.all([
+      Notifications.find(query)
+        .sort({ createdDate: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate("bookingId", "bookingId status scheduledDate scheduledTime")
+        .populate("stylistId", "stylistName stylistImage")
+        .lean(),
+      Notifications.countDocuments(query),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Notifications retrieved successfully",
+      data: {
+        notifications,
+        pagination: {
+          currentPage: pageNum,
+          totalPages: Math.ceil(total / limitNum) || 1,
+          total,
+          limit: limitNum,
+          hasNextPage: skip + notifications.length < total,
+          hasPrevPage: pageNum > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("getMyNotifications:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error retrieving notifications",
+      error: error.message,
+    });
+  }
+};
+
+exports.getMyUnreadNotificationCount = async (req, res) => {
+  try {
+    const userId = getAuthUserIdFromReq(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const count = await Notifications.countDocuments({ userId, seen: false });
+
+    return res.status(200).json({
+      success: true,
+      data: { unreadCount: count },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching unread count",
+      error: error.message,
+    });
+  }
+};
+
+exports.markMyNotificationsRead = async (req, res) => {
+  try {
+    const userId = getAuthUserIdFromReq(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { notificationIds } = req.body;
+    const query = { userId, seen: false };
+    if (Array.isArray(notificationIds) && notificationIds.length > 0) {
+      query._id = { $in: notificationIds };
+    }
+
+    const result = await Notifications.updateMany(query, { $set: { seen: true } });
+
+    return res.status(200).json({
+      success: true,
+      message: "Notifications marked as read",
+      data: { modifiedCount: result.modifiedCount },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Error marking notifications as read",
+      error: error.message,
+    });
+  }
+};
 
 // Get notifications inbox for a user (stylist app)
 exports.getUserNotifications = async (req, res) => {
