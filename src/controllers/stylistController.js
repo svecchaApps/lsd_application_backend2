@@ -9,6 +9,50 @@ const {
     sendFcmNotification,
 } = require("./notificationController");
 
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Comma-separated `specialties` and/or repeated `specialty` query params */
+function parseSpecialtyList(req) {
+    const q = req.query;
+    const out = [];
+    if (q.specialties != null && q.specialties !== "") {
+        out.push(
+            ...String(q.specialties)
+                .split(",")
+                .map((x) => x.trim())
+                .filter(Boolean)
+        );
+    }
+    if (q.specialty != null && q.specialty !== "") {
+        const sp = q.specialty;
+        if (Array.isArray(sp)) {
+            out.push(...sp.map((x) => String(x).trim()).filter(Boolean));
+        } else {
+            out.push(String(sp).trim());
+        }
+    }
+    return [...new Set(out)];
+}
+
+/** Stylist matches if at least one requested value equals an element in specialties or stylistSkills (case-insensitive). */
+function specialtyFilterCondition(specialtyList) {
+    if (!specialtyList.length) return null;
+    const or = [];
+    for (const s of specialtyList) {
+        if (!s) continue;
+        const re = new RegExp(`^${escapeRegex(s)}$`, "i");
+        or.push({ specialties: re }, { stylistSkills: re });
+    }
+    return or.length ? { $or: or } : null;
+}
+
+function applySpecialtyFilterToQuery(query, req) {
+    const cond = specialtyFilterCondition(parseSpecialtyList(req));
+    if (!cond) return;
+    if (!query.$and) query.$and = [];
+    query.$and.push(cond);
+}
+
 exports.createStylistProfile = async (req, res) => {
     try {
         const {
@@ -703,6 +747,8 @@ exports.getApprovedStylistProfiles = async (req, res) => {
             }
         }
 
+        applySpecialtyFilterToQuery(query, req);
+
         // Build sort object
         const sort = {};
         sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
@@ -768,19 +814,31 @@ exports.searchStylists = async (req, res) => {
             'bookingSettings.isAvailableForBooking': true
         };
 
-        // Text search across multiple fields
+        const specList = parseSpecialtyList(req);
+        const specCond = specialtyFilterCondition(specList);
+
+        // Text search across multiple fields (AND with specialty filter when both present)
         if (q && q.trim() !== '') {
             const searchText = q.trim();
             const searchRegex = { $regex: searchText, $options: 'i' };
-            query.$or = [
+            const searchOr = [
                 { stylistName: searchRegex },
                 { stylistBio: searchRegex },
                 { stylistCity: searchRegex },
                 { stylistState: searchRegex },
                 { stylistExperience: searchRegex },
                 { stylistEducation: searchRegex },
-                { stylistSkills: searchRegex }
+                { stylistSkills: searchRegex },
+                { specialties: searchRegex }
             ];
+            if (specCond) {
+                query.$and = [{ $or: searchOr }, specCond];
+            } else {
+                query.$or = searchOr;
+            }
+        } else if (specCond) {
+            if (!query.$and) query.$and = [];
+            query.$and.push(specCond);
         }
 
         // Filter by location (more specific than search)
@@ -1185,6 +1243,49 @@ exports.getStylistCategories = async (req, res) => {
     }
 };
 
+// Distinct specialties from approved bookable stylists (from specialties + stylistSkills)
+exports.getStylistSpecialties = async (req, res) => {
+    try {
+        const match = {
+            isApproved: true,
+            approvalStatus: "approved",
+            applicationStatus: "approved",
+            "bookingSettings.isAvailableForBooking": true,
+        };
+        const docs = await StylistProfile.find(match)
+            .select("specialties stylistSkills")
+            .lean();
+        const map = new Map();
+        for (const d of docs) {
+            const lists = [...(d.specialties || []), ...(d.stylistSkills || [])];
+            for (const t of lists) {
+                const x = String(t).trim();
+                if (!x) continue;
+                const key = x.toLowerCase();
+                if (!map.has(key)) map.set(key, x);
+            }
+        }
+        const specialties = Array.from(map.values()).sort((a, b) =>
+            a.localeCompare(b, undefined, { sensitivity: "base" })
+        );
+        return res.status(200).json({
+            success: true,
+            message: "Stylist specialties retrieved successfully",
+            data: {
+                specialties,
+                count: specialties.length,
+            },
+        });
+    } catch (error) {
+        console.error("Error getting stylist specialties:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error retrieving stylist specialties",
+            error: error.message,
+        });
+    }
+};
+
 // Get stylists by category with filters
 exports.getStylistsByCategory = async (req, res) => {
     try {
@@ -1287,6 +1388,8 @@ exports.getStylistsByCategory = async (req, res) => {
         if (Object.keys(priceFilters).length > 0) {
             query.stylistPrice = priceFilters;
         }
+
+        applySpecialtyFilterToQuery(query, req);
 
         // Validate sortBy field
         const validSortFields = ['stylistRating', 'stylistPrice', 'stylistName', 'createdAt'];
@@ -1455,6 +1558,8 @@ exports.getTopStylists = async (req, res) => {
         if (state) {
             query.stylistState = { $regex: state, $options: 'i' };
         }
+
+        applySpecialtyFilterToQuery(query, req);
 
         // Get all approved stylists matching filters
         const stylists = await StylistProfile.find(query)

@@ -34,8 +34,12 @@ All endpoints are prefixed with `/stylist`.
 | `minRating` | Number | No | `0` | Minimum rating filter (0-5) |
 | `minPrice` | Number | No | `null` | Minimum price filter |
 | `maxPrice` | Number | No | `null` | Maximum price filter |
+| `specialty` | String | No | — | One specialty; repeat for multiple values |
+| `specialties` | String | No | — | Comma-separated list; stylist matches if any value equals an entry in **`specialties`** or **`stylistSkills`** (case-insensitive) |
 | `sortBy` | String | No | `'stylistRating'` | Field to sort by |
 | `sortOrder` | String | No | `'desc'` | Sort order: 'asc' or 'desc' |
+
+Label list for filters: **`GET /stylist/specialties`**.
 
 ### Sort Fields
 

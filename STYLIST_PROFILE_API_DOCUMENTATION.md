@@ -15,7 +15,23 @@ All endpoints are prefixed with `/stylist`
 
 ## Endpoints
 
-### 1. Get Approved Stylist Profiles (Public)
+### 1. List stylist specialties (Public)
+
+Distinct specialty strings for filters (from approved, bookable stylists’ **`specialties`** and **`stylistSkills`** fields, deduplicated case-insensitively).
+
+#### Endpoint
+- **GET** `/stylist/specialties`
+
+#### Authentication
+❌ Not Required
+
+#### Success Response (200 OK)
+
+`data.specialties` — string array; `data.count` — length.
+
+---
+
+### 2. Get Approved Stylist Profiles (Public)
 
 Get a paginated list of approved stylist profiles with advanced filtering options. This is a public endpoint that doesn't require authentication.
 
@@ -37,6 +53,8 @@ Get a paginated list of approved stylist profiles with advanced filtering option
 | `maxPrice` | Number | No | - | Maximum price filter (e.g., 5000) |
 | `category` | String | No | - | Filter by category name (case-insensitive partial match) |
 | `categoryId` | String (ObjectId) | No | - | Filter by category ID (alternative to category name) |
+| `specialty` | String | No | - | One specialty; repeat for multiple (`specialty=A&specialty=B`) |
+| `specialties` | String | No | - | Comma-separated specialties (exact match on `specialties` or `stylistSkills` elements) |
 | `sortBy` | String | No | `stylistRating` | Field to sort by (`stylistRating`, `stylistPrice`, `createdAt`, `stylistName`) |
 | `sortOrder` | String | No | `desc` | Sort order (`asc` or `desc`) |
 
@@ -162,9 +180,15 @@ GET /stylist/approved?categoryId=507f1f77bcf86cd799439012
 GET /stylist/approved?category=Personal Styling&city=Mumbai&minRating=4.0&maxPrice=5000
 ```
 
+**Filter by specialty (exact match on `specialties` or `stylistSkills`):**
+```bash
+GET /stylist/approved?specialties=Personal%20Styling,Bridal
+GET /stylist/approved?specialty=Color%20Analysis
+```
+
 ---
 
-### 2. Get Top Stylists (Public)
+### 3. Get Top Stylists (Public)
 
 Get top stylists ranked by a combined algorithm based on number of bookings and ratings. This is a public endpoint that doesn't require authentication.
 
@@ -209,11 +233,16 @@ The ranking algorithm uses a combined scoring system:
 | `categoryId` | String (ObjectId) | No | - | Filter by category ID |
 | `city` | String | No | - | Filter by city (case-insensitive) |
 | `state` | String | No | - | Filter by state (case-insensitive) |
+| `specialty` | String | No | - | Specialty filter; repeatable (see **§2** approved listing) |
+| `specialties` | String | No | - | Comma-separated specialty filters |
+
+Same ranking logic is exposed at **`GET /stylist/top-stylists`**.
 
 #### Example Request
 
 ```bash
 GET /stylist/top?limit=10&minBookings=5&minRating=4.0&city=Mumbai
+GET /stylist/top-stylists?specialty=Bridal&limit=5
 ```
 
 #### Success Response (200 OK)
@@ -331,7 +360,7 @@ GET /stylist/top?limit=10&minBookings=5&minRating=4.0&city=Mumbai&categoryId=507
 
 ---
 
-### 3. Get All Stylist Profiles (Admin)
+### 4. Get All Stylist Profiles (Admin)
 
 Get a paginated list of all stylist profiles with advanced filtering and search capabilities. Admin only.
 
@@ -436,7 +465,7 @@ GET /stylist/all?status=approved&search=Mumbai&sortBy=createdAt&sortOrder=desc&p
 
 ---
 
-### 3. Get Pending Stylist Profiles (Admin)
+### 5. Get Pending Stylist Profiles (Admin)
 
 Get a paginated list of stylist profiles pending approval. Admin only.
 
@@ -495,7 +524,7 @@ GET /stylist/pending?page=1&limit=10
 
 ---
 
-### 4. Get Stylist Profile by User ID (Public)
+### 6. Get Stylist Profile by User ID (Public)
 
 Get a specific stylist profile by user ID. Public endpoint, no authentication required.
 
@@ -574,7 +603,7 @@ GET /stylist/profile/507f191e810c19729de860ea
 
 ---
 
-### 5. Get My Stylist Profile (User)
+### 7. Get My Stylist Profile (User)
 
 Get the authenticated user's own stylist profile.
 
@@ -619,7 +648,7 @@ Authorization: Bearer <token>
 
 ---
 
-### 6. Create Stylist Profile (User)
+### 8. Create Stylist Profile (User)
 
 Create a new stylist profile for the authenticated user.
 
@@ -731,7 +760,7 @@ Create a new stylist profile for the authenticated user.
 
 ---
 
-### 7. Update Stylist Profile (User)
+### 9. Update Stylist Profile (User)
 
 Update the authenticated user's stylist profile. Note: Updating an approved profile will reset its approval status to pending.
 
@@ -784,7 +813,7 @@ All fields are optional. Only include fields you want to update:
 
 ---
 
-### 8. Delete Stylist Profile (User)
+### 10. Delete Stylist Profile (User)
 
 Delete the authenticated user's stylist profile.
 
@@ -805,7 +834,7 @@ Delete the authenticated user's stylist profile.
 
 ---
 
-### 9. Approve Stylist Profile (Admin)
+### 11. Approve Stylist Profile (Admin)
 
 Approve a stylist profile. Admin only.
 
@@ -862,7 +891,7 @@ Approve a stylist profile. Admin only.
 
 ---
 
-### 10. Reject Stylist Profile (Admin)
+### 12. Reject Stylist Profile (Admin)
 
 Reject a stylist profile. Admin only.
 
@@ -935,7 +964,7 @@ Reject a stylist profile. Admin only.
 
 ---
 
-### 11. Get Stylist Statistics (Admin)
+### 13. Get Stylist Statistics (Admin)
 
 Get comprehensive statistics about stylists. Admin only.
 

@@ -66,6 +66,11 @@ router.get(
 );
 
 router.get(
+    "/specialties",
+    stylistController.getStylistSpecialties
+);
+
+router.get(
     "/category/:categoryId",
     
     stylistController.getStylistsByCategory

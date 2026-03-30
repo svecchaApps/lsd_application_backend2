@@ -8,10 +8,12 @@ Documentation for the **past sessions** endpoint added for authenticated users t
 
 | | |
 |---|---|
-| **URL** | `GET /stylist-booking/past-sessions` |
+| **URL** | `GET /stylist-booking/past-sessions` **or** `GET /stylist-booking/user/past-sessions` |
 | **Router** | `src/routes/stylistBookingRoutes.js` |
 | **Controller** | `StylistBookingController.getPastSessions` in `src/controllers/stylistBookingController.js` |
-| **Base path** | Mounted at `/stylist-booking` in `index.js` → full path **`/stylist-booking/past-sessions`** |
+| **Base path** | Mounted at `/stylist-booking` in `index.js` |
+
+Both paths are identical — they return **past sessions for the authenticated end-user (client)** who owns the bookings. The JWT `userId` is normalized to a Mongo `ObjectId` so it matches `StylistBooking.userId` reliably.
 
 ---
 
@@ -123,6 +125,12 @@ Results are sorted by **`scheduledDate`** desc, then **`scheduledTime`** desc (m
 
 ---
 
+## Related: all bookings without passing `userId`
+
+`GET /stylist-booking/user-bookings` now works **only with the Bearer token**: you can omit `userId` in the query and the server loads bookings for **`req.user`**. If you still pass `userId`, it must match the token (you cannot read another user’s bookings).
+
+---
+
 ## Related: submit a review
 
 After a completed session, the client submits a review with:
@@ -131,6 +139,50 @@ After a completed session, the client submits a review with:
 - `:bookingId` = **booking** Mongo `_id` (same as `sessions[i]._id` from this list).
 
 See **`STYLIST_USER_BOOKING_API.md`** and **`update3333.md`** for the review contract.
+
+---
+
+## Related: stylist specialties & discovery
+
+These routes are on the **`/stylist`** router (not `/stylist-booking`). Use them when building **browse / search / leaderboard** flows alongside history and reviews.
+
+### List distinct specialties (public)
+
+| | |
+|---|---|
+| **URL** | `GET /stylist/specialties` |
+| **Auth** | None |
+
+Response includes **`data.specialties`** (sorted strings) and **`data.count`**. Values come from approved, bookable stylists’ **`specialties`** and **`stylistSkills`** arrays (deduplicated case-insensitively). Use for filter chips before calling listing endpoints.
+
+### Filter stylists by specialty (optional query params)
+
+| Param | Description |
+|-------|-------------|
+| `specialties` | Comma-separated, e.g. `Color Analysis,Wardrobe` |
+| `specialty` | Single value; may repeat (`specialty=A&specialty=B`) |
+
+A stylist matches if **any** requested value **exactly** matches (case-insensitive) **any** element in **`specialties`** or **`stylistSkills`**.
+
+Supported on:
+
+| URL | Role |
+|-----|------|
+| `GET /stylist/approved` | Browse with filters |
+| `GET /stylist/search` | With `q`, text search and specialty filter are **AND**’d; `q` also matches **`specialties`** as substring |
+| `GET /stylist/top` or `GET /stylist/top-stylists` | Leaderboard |
+| `GET /stylist/category/:categoryId` | Stylists in category, optionally narrowed by specialty |
+
+**Examples**
+
+```http
+GET /stylist/specialties
+GET /stylist/approved?specialties=Personal%20Styling,Bridal
+GET /stylist/search?q=studio&specialty=Hair%20Styling
+GET /stylist/top-stylists?specialty=Color%20Analysis&limit=5
+```
+
+Full detail: **`STYLIST_USER_BOOKING_API.md`** §5, **`STYLIST_SEARCH_API_DOCUMENTATION.md`**, **`STYLIST_PROFILE_API_DOCUMENTATION.md`**.
 
 ---
 
@@ -144,4 +196,4 @@ See **`STYLIST_USER_BOOKING_API.md`** and **`update3333.md`** for the review con
 
 ---
 
-*This file documents the past-sessions feature only. For top stylists, reviews, and other routes, see `STYLIST_USER_BOOKING_API.md`.*
+*This file focuses on past sessions and related client flows. For **stylist specialties** (`GET /stylist/specialties`), specialty filters on discovery endpoints, **top stylists**, **reviews**, and **`user-bookings`**, see `STYLIST_USER_BOOKING_API.md`.*

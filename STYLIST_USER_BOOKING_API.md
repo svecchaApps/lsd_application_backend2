@@ -1,6 +1,6 @@
 # Stylist & user booking API — reference
 
-Standalone documentation for **reviews**, **past sessions**, **top stylists**, and related user booking routes.  
+Standalone documentation for **reviews**, **past sessions**, **top stylists**, **stylist specialties** (list + filter params on discovery routes), and related user booking routes.  
 All paths are relative to your API origin (e.g. `https://your-api.com`).
 
 **Mounted routers**
@@ -99,11 +99,64 @@ Use **`canReview`** to show or hide the “Rate session” action without extra 
 | **Method / path** | `GET /stylist-booking/user-bookings` |
 | **Auth** | JWT |
 
+**Query**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `userId` | **No** | If omitted, the server uses the **JWT user** (recommended). If provided, it **must** match the token user (same as `req.user`). |
+| `page`, `limit`, `status` | No | Pagination and optional status filter |
+
 Use for a full list including upcoming and completed; filter client-side or extend the API if you need status filters.
 
 ---
 
-## 5. Top stylists (leaderboard)
+## 5. Stylist specialties (list & filter)
+
+### List distinct specialties
+
+| | |
+|---|---|
+| **Method / path** | `GET /stylist/specialties` |
+| **Auth** | None |
+
+Returns **`data.specialties`**: sorted distinct strings collected from approved, bookable stylists’ **`specialties`** and **`stylistSkills`** arrays (duplicates removed case-insensitively). **`data.count`** is the array length.
+
+Use this to populate filter chips or dropdowns before calling the listing endpoints below.
+
+### Filter stylists by specialty
+
+Optional query parameters (same semantics everywhere):
+
+| Param | Description |
+|-------|-------------|
+| `specialties` | Comma-separated list, e.g. `Color Analysis,Wardrobe` |
+| `specialty` | Single value; may be repeated (`specialty=A&specialty=B`) |
+
+A stylist matches if **any** requested value **exactly** matches (case-insensitive) **any** element in **`specialties`** or **`stylistSkills`**.
+
+Supported on:
+
+| Method / path | Notes |
+|---------------|--------|
+| `GET /stylist/approved` | Browsing with filters |
+| `GET /stylist/search` | Combined with `q`: text search **and** specialty filter; `q` also matches **`specialties`** as substring |
+| `GET /stylist/top` | Same as `/stylist/top-stylists` |
+| `GET /stylist/top-stylists` | Leaderboard with optional specialty filter |
+| `GET /stylist/category/:categoryId` | Category listing **and** optional specialty narrow |
+
+**Examples**
+
+```http
+GET /stylist/specialties
+GET /stylist/approved?specialties=Personal%20Styling,Bridal
+GET /stylist/search?q=studio&specialty=Hair%20Styling
+GET /stylist/top-stylists?specialty=Color%20Analysis&limit=5
+GET /stylist/category/507f1f77bcf86cd799439011?specialties=Bridal
+```
+
+---
+
+## 6. Top stylists (leaderboard)
 
 Two equivalent entry points; same handler and response shape.
 
@@ -122,12 +175,14 @@ Two equivalent entry points; same handler and response shape.
 | `categoryId` | Stylist category ObjectId |
 | `city` | Case-insensitive match on `stylistCity` |
 | `state` | Case-insensitive match on `stylistState` |
+| `specialties` | Comma-separated specialty filters (see **§5**) |
+| `specialty` | Single specialty; repeatable (see **§5**) |
 
 Response includes ranked stylists with **`stats`** (completed/total bookings, rating, rating count) and **`scores`** (booking score, rating score, combined score, `isTopStylist`).
 
 ---
 
-## 6. ID cheat sheet
+## 7. ID cheat sheet
 
 | Concept | ID type |
 |---------|---------|
@@ -137,12 +192,14 @@ Response includes ranked stylists with **`stats`** (completed/total bookings, ra
 
 ---
 
-## 7. Related docs
+## 8. Related docs
 
 - `update3333.md` — original integration notes (may overlap; this file is the consolidated API reference).
 - `BOOKING_AND_VIDEO_SESSION_GUIDE.md` — booking + payment flow.
 - `AGORA_VIDEO_CHAT_CLIENT_INTEGRATION.md` — video/chat tokens.
+- `STYLIST_SEARCH_API_DOCUMENTATION.md` — search query parameters in detail.
+- `STYLIST_PROFILE_API_DOCUMENTATION.md` — approved listing and profile fields.
 
 ---
 
-*Last updated for: past sessions, top-stylists alias, reviews & ratings endpoints.*
+*Last updated for: stylist specialties (`GET /stylist/specialties`), specialty filters on discovery endpoints, past sessions, top-stylists alias, reviews & ratings.*

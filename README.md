@@ -73,6 +73,7 @@ Implementation notes:
 ### 2. Stylist profiles & professional portal
 
 - Public / admin routes under **`/stylist`** (see [`src/routes/stylistRoutes.js`](./src/routes/stylistRoutes.js)).
+- **Specialties**: `GET /stylist/specialties` returns distinct labels from profiles (`specialties` + `stylistSkills`). Optional query params **`specialty`** / **`specialties`** filter **`/stylist/approved`**, **`/stylist/search`**, **`/stylist/top`**, **`/stylist/category/:categoryId`** (see [`STYLIST_USER_BOOKING_API.md`](./STYLIST_USER_BOOKING_API.md) §5).
 - **Professional dashboard** (bookings, clients, profile, availability) resolves the stylist from the **JWT** (`req.user._id` or `req.user.id`), not from trusting URL ids alone.
 - Availability:
   - **Full schedule**: `POST /stylist/availability` (auth required) — weekly schedule, overrides, timezone; stylist inferred from token.
@@ -129,7 +130,7 @@ src/
 | [`PROFESSIONAL_STYLIST_INTEGRATION.md`](./PROFESSIONAL_STYLIST_INTEGRATION.md) | Professional stylist app |
 | [`STYLIST_JOINING_FEE_INTEGRATION.md`](./STYLIST_JOINING_FEE_INTEGRATION.md) | Joining fee flow |
 | [`STYLIST_APP_API_CHECKLIST.md`](./STYLIST_APP_API_CHECKLIST.md) | API checklist for stylist app |
-| [`STYLIST_USER_BOOKING_API.md`](./STYLIST_USER_BOOKING_API.md) | Reviews, past sessions, top stylists, user bookings |
+| [`STYLIST_USER_BOOKING_API.md`](./STYLIST_USER_BOOKING_API.md) | Reviews, past sessions, specialties list/filters, top stylists, user bookings |
 
 ---
 

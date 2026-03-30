@@ -1,6 +1,14 @@
 const mongoose = require("mongoose");
 const StylistBooking = require("../models/stylistBooking");
 const StylistProfile = require("../models/stylistProfile");
+
+/** Normalize JWT user id to ObjectId for StylistBooking.userId queries */
+const toUserObjectId = (id) => {
+    if (!id) return null;
+    const s = id.toString();
+    if (!mongoose.Types.ObjectId.isValid(s)) return null;
+    return new mongoose.Types.ObjectId(s);
+};
 const StylistAvailability = require("../models/stylistAvailability");
 const { Chat, Message } = require("../models/chat");
 const RazorpayService = require("../service/razorpayService");
@@ -669,27 +677,43 @@ class StylistBookingController {
       
 
     /**
-     * Get user's bookings
-     * Accepts userId as query parameter for reliability
+     * Get user's bookings (client / end-user)
+     * Uses JWT user by default. Optional query userId must match the token.
      */
     static async getUserBookings(req, res) {
         try {
-            const { userId, page = 1, limit = 10, status } = req.query;
-
-            // Validate userId is provided
-            if (!userId) {
-                return res.status(400).json({
+            const tokenUserId = req.user?._id || req.user?.id;
+            if (!tokenUserId) {
+                return res.status(401).json({
                     success: false,
-                    message: "userId is required as query parameter"
+                    message: "Unauthorized"
                 });
             }
 
-            // Validate ObjectId format
-            if (!mongoose.Types.ObjectId.isValid(userId)) {
+            const { userId: userIdQuery, page = 1, limit = 10, status } = req.query;
+
+            let targetUserId = toUserObjectId(tokenUserId);
+            if (!targetUserId) {
                 return res.status(400).json({
                     success: false,
-                    message: "Invalid userId format"
+                    message: "Invalid authenticated user id"
                 });
+            }
+
+            if (userIdQuery) {
+                if (userIdQuery.toString() !== tokenUserId.toString()) {
+                    return res.status(403).json({
+                        success: false,
+                        message: "You can only access your own bookings"
+                    });
+                }
+                if (!mongoose.Types.ObjectId.isValid(userIdQuery)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Invalid userId format"
+                    });
+                }
+                targetUserId = new mongoose.Types.ObjectId(String(userIdQuery));
             }
 
             // Validate and parse pagination parameters
@@ -713,7 +737,7 @@ class StylistBookingController {
             const skip = (pageNum - 1) * limitNum;
 
             // Build query
-            let query = { userId: new mongoose.Types.ObjectId(userId) };
+            let query = { userId: targetUserId };
             if (status) {
                 const validStatuses = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show'];
                 if (validStatuses.includes(status)) {
@@ -1399,11 +1423,19 @@ class StylistBookingController {
      */
     static async getPastSessions(req, res) {
         try {
-            const userId = req.user?._id || req.user?.id;
-            if (!userId) {
+            const raw = req.user?._id || req.user?.id;
+            if (!raw) {
                 return res.status(401).json({
                     success: false,
                     message: "Unauthorized"
+                });
+            }
+
+            const userId = toUserObjectId(raw);
+            if (!userId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid user id in token"
                 });
             }
 

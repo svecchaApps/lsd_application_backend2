@@ -32,8 +32,16 @@ All endpoints are prefixed with `/stylist`.
 | `maxPrice` | Number | No | `null` | Maximum price filter |
 | `category` | String | No | `''` | Filter by category name |
 | `categoryId` | String/ObjectId | No | `''` | Filter by category ID |
+| `specialty` | String | No | — | Filter by one specialty; repeat for multiple values (`specialty=A&specialty=B`) |
+| `specialties` | String | No | — | Comma-separated specialty filters (e.g. `Color,Wardrobe`) |
 | `sortBy` | String | No | `'stylistRating'` | Field to sort by |
 | `sortOrder` | String | No | `'desc'` | Sort order: 'asc' or 'desc' |
+
+### Specialty filter
+
+When **`specialty`** / **`specialties`** are present, the result must include stylists whose **`specialties`** or **`stylistSkills`** arrays contain **at least one** of the requested values (case-insensitive **exact** string match per element). If **`q`** is also set, the text search and specialty filter are combined with **AND** (both must match).
+
+Distinct values for UI chips: **`GET /stylist/specialties`**.
 
 ### Search Fields
 
@@ -45,6 +53,7 @@ The search query (`q` parameter) searches across the following fields:
 - **stylistExperience** - Experience description
 - **stylistEducation** - Education background
 - **stylistSkills** - Array of skills
+- **specialties** - Array of specialty strings (substring match)
 
 ### Sort Fields
 

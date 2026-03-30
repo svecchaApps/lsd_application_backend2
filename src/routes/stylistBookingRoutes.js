@@ -70,6 +70,13 @@ router.get(
     stylistBookingController.getPastSessions
 );
 
+// Alias: same handler — past sessions for the authenticated client (user)
+router.get(
+    "/user/past-sessions",
+    authMiddleware,
+    stylistBookingController.getPastSessions
+);
+
 // Public route - accepts userId as parameter
 router.get(
     "/upcoming-sessions",
