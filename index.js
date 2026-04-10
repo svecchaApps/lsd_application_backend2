@@ -123,7 +123,6 @@ app.get("/database/status", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 IndigoRhapsody Server Started`);
   console.log(`📍 Environment: ${NODE_ENV}`);
   console.log(`🌐 Port: ${PORT}`);
   console.log(`🔗 Health Check: http://localhost:${PORT}/health`);
