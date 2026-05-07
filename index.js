@@ -53,6 +53,7 @@ const corsOptions = {
     "https://admindashboard.irtest.in",
     "https://www.admindashboard.irtest.in",
     "https://admin.indigorhapsody.com",
+    "https://lsdweb-8q0kq6097-indigo-rhapsody.vercel.app",
     "http://localhost:5173",
     "https://www.admin.indigorhapsody.com"
   ],
