@@ -1268,11 +1268,91 @@ exports.createUserStylistAccount = async (req, res) => {
     // Check if userStylist account already exists
     const existingUserStylist = await UserStylist.findOne({ userId: userId });
     if (existingUserStylist) {
-      return res.status(400).json({
-        success: false,
-        message: "User already has a stylist account",
+      // Same route is used for initial create (basic fields) then full profile save.
+      // Merge body into existing doc instead of rejecting — avoids 400 on the second POST.
+      const {
+        style_Preference,
+        fashion_goals,
+        body_type,
+        size_Information,
+        color_Preference,
+        budget_Range: bodyBudgetRange,
+        budget_Currency: bodyBudgetCurrency,
+        experimental,
+        go_to_outfit,
+        fashion_vibe,
+        user_Pictures,
+      } = req.body;
+
+      if (Array.isArray(style_Preference)) {
+        existingUserStylist.style_Preference = style_Preference;
+      }
+      if (Array.isArray(fashion_goals)) {
+        existingUserStylist.fashion_goals = fashion_goals;
+      }
+      if (Array.isArray(body_type)) {
+        existingUserStylist.body_type = body_type;
+      }
+      if (Array.isArray(size_Information)) {
+        existingUserStylist.size_Information = size_Information;
+      }
+      if (Array.isArray(color_Preference)) {
+        existingUserStylist.color_Preference = color_Preference;
+      }
+      if (Array.isArray(experimental)) {
+        existingUserStylist.experimental = experimental;
+      }
+      if (Array.isArray(user_Pictures)) {
+        existingUserStylist.user_Pictures = user_Pictures;
+      }
+      if (bodyBudgetRange !== undefined && bodyBudgetRange !== null) {
+        existingUserStylist.budget_Range = bodyBudgetRange;
+      }
+      if (
+        bodyBudgetCurrency !== undefined &&
+        bodyBudgetCurrency !== null &&
+        String(bodyBudgetCurrency).trim() !== ""
+      ) {
+        existingUserStylist.budget_Currency = bodyBudgetCurrency;
+      }
+      if (go_to_outfit !== undefined) {
+        existingUserStylist.go_to_outfit = go_to_outfit;
+      }
+      if (fashion_vibe !== undefined) {
+        existingUserStylist.fashion_vibe = fashion_vibe;
+      }
+
+      existingUserStylist.updatedAt = new Date();
+      await existingUserStylist.save();
+      await existingUserStylist.populate(
+        "userId",
+        "displayName email phoneNumber"
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "User stylist account updated successfully",
         data: {
           userStylistId: existingUserStylist._id,
+          userId: existingUserStylist.userId._id,
+          userInfo: {
+            displayName: existingUserStylist.userId.displayName,
+            email: existingUserStylist.userId.email,
+            phoneNumber: existingUserStylist.userId.phoneNumber,
+          },
+          stylePreferences: existingUserStylist.style_Preference,
+          fashionGoals: existingUserStylist.fashion_goals,
+          bodyType: existingUserStylist.body_type,
+          sizeInformation: existingUserStylist.size_Information,
+          colorPreference: existingUserStylist.color_Preference,
+          budgetRange: existingUserStylist.budget_Range,
+          budgetCurrency: existingUserStylist.budget_Currency,
+          experimental: existingUserStylist.experimental,
+          goToOutfit: existingUserStylist.go_to_outfit,
+          fashionVibe: existingUserStylist.fashion_vibe,
+          userPictures: existingUserStylist.user_Pictures,
+          createdAt: existingUserStylist.createdAt,
+          updatedAt: existingUserStylist.updatedAt,
         },
       });
     }
