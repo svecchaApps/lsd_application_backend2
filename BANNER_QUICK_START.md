@@ -1,4 +1,3 @@
-# Banner System - Quick Start Guide
 
 ## 🚀 Quick Setup
 
