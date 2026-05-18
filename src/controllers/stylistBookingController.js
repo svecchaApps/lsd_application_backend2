@@ -789,22 +789,57 @@ class StylistBookingController {
 
     /**
      * Get stylist's bookings
+     * Supports ?status=upcoming|completed|cancelled|pending|confirmed|all
+     * Supports ?dateFilter=all|thisWeek|thisMonth
      */
     static async getStylistBookings(req, res) {
         try {
-            const stylistId = req.user._id; // Assuming user is stylist
-            const { page = 1, limit = 10, status } = req.query;
+            const stylistUserId = req.user._id;
 
+            // Resolve stylist profile from JWT user id
+            const stylistProfile = await StylistProfile.findOne({ userId: stylistUserId });
+            if (!stylistProfile) {
+                return res.status(404).json({ success: false, message: "Stylist profile not found" });
+            }
+
+            const { page = 1, limit = 10, status, dateFilter = "all" } = req.query;
             const skip = (parseInt(page) - 1) * parseInt(limit);
 
-            let query = { stylistId };
-            if (status) {
-                query.status = status;
+            const query = { stylistId: stylistProfile._id };
+
+            // Status filtering
+            if (status && status !== "all") {
+                if (status === "upcoming") {
+                    query.status = { $in: ["pending", "confirmed", "in_progress"] };
+                } else if (status === "cancelled") {
+                    query.status = { $in: ["cancelled", "no_show"] };
+                } else {
+                    query.status = status;
+                }
+            }
+
+            // Date range filtering
+            if (dateFilter === "thisWeek") {
+                const now = new Date();
+                const dayOfWeek = now.getDay();
+                const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                const weekStart = new Date(now);
+                weekStart.setDate(now.getDate() + diffToMon);
+                weekStart.setHours(0, 0, 0, 0);
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekStart.getDate() + 6);
+                weekEnd.setHours(23, 59, 59, 999);
+                query.scheduledDate = { $gte: weekStart, $lte: weekEnd };
+            } else if (dateFilter === "thisMonth") {
+                const now = new Date();
+                const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+                query.scheduledDate = { $gte: monthStart, $lte: monthEnd };
             }
 
             const bookings = await StylistBooking.find(query)
-                .populate('userId', 'displayName email phoneNumber')
-                .sort({ createdAt: -1 })
+                .populate('userId', 'displayName email phoneNumber profilePictureUrl')
+                .sort({ scheduledDate: -1, scheduledTime: -1 })
                 .skip(skip)
                 .limit(parseInt(limit));
 

@@ -4,10 +4,14 @@ const crypto = require("crypto");
 const User = require("../models/userModel");
 const StylistProfile = require("../models/stylistProfile");
 const StylistBooking = require("../models/stylistBooking");
+const StylistAvailability = require("../models/stylistAvailability");
 const { admin } = require("../service/firebaseServices");
 const { sendFcmNotification } = require("./notificationController");
 const RazorpayService = require("../service/razorpayService");
 require("dotenv").config();
+
+// Payout settlement window in days (earnings held before releasing)
+const PAYOUT_SETTLEMENT_DAYS = parseInt(process.env.PAYOUT_SETTLEMENT_DAYS || "7", 10);
 
 const JOINING_FEE = parseInt(process.env.STYLIST_JOINING_FEE || "499", 10); // INR
 
@@ -406,14 +410,15 @@ exports.getDashboardStats = async (req, res) => {
             upcomingSessions,
             distinctClientsResult,
             earningsResult,
+            ratingResult,
         ] = await Promise.all([
             StylistBooking.countDocuments({ stylistId: profileId }),
             StylistBooking.countDocuments({ stylistId: profileId, status: "completed" }),
             StylistBooking.countDocuments({ stylistId: profileId, status: "pending" }),
             StylistBooking.countDocuments({
                 stylistId: profileId,
-                status: "confirmed",
-                scheduledDate: { $gt: now },
+                status: { $in: ["pending", "confirmed"] },
+                scheduledDate: { $gte: now },
             }),
             StylistBooking.distinct("userId", { stylistId: profileId }),
             StylistBooking.aggregate([
@@ -427,7 +432,30 @@ exports.getDashboardStats = async (req, res) => {
                     },
                 },
             ]),
+            StylistBooking.aggregate([
+                {
+                    $match: {
+                        stylistId: profileId,
+                        status: "completed",
+                        userRating: { $exists: true, $gt: 0 },
+                    },
+                },
+                {
+                    $group: {
+                        _id: null,
+                        avgRating: { $avg: "$userRating" },
+                    },
+                },
+            ]),
         ]);
+
+        const rating =
+            ratingResult[0]?.avgRating != null
+                ? Math.round(ratingResult[0].avgRating * 10) / 10
+                : profile.bookingStats?.averageRating || 0;
+
+        const stylistName =
+            profile.fullName || profile.stylistName || "";
 
         return res.status(200).json({
             success: true,
@@ -438,7 +466,8 @@ exports.getDashboardStats = async (req, res) => {
                 completedSessions: completedBookings,
                 pendingRequests,
                 totalEarnings: earningsResult[0]?.total || 0,
-                rating: profile.bookingStats?.averageRating || 0,
+                rating,
+                stylistName,
             },
         });
     } catch (err) {
@@ -536,6 +565,8 @@ exports.getBookingRevenue = async (req, res) => {
 };
 
 // ─── GET /stylist/:stylistId/bookings ───────────────────────────────────────
+// Supports ?status=upcoming|completed|cancelled|pending|confirmed|all
+// Supports ?dateFilter=all|thisWeek|thisMonth
 
 exports.getStylistBookings = async (req, res) => {
     try {
@@ -548,14 +579,45 @@ exports.getStylistBookings = async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
+        const statusParam = req.query.status;
+        const dateFilter = req.query.dateFilter || "all";
 
         const filter = { stylistId: profile._id };
-        if (req.query.status) filter.status = req.query.status;
+
+        // Status filtering — "upcoming" is a virtual group
+        if (statusParam && statusParam !== "all") {
+            if (statusParam === "upcoming") {
+                filter.status = { $in: ["pending", "confirmed", "in_progress"] };
+            } else if (statusParam === "cancelled") {
+                filter.status = { $in: ["cancelled", "no_show"] };
+            } else {
+                filter.status = statusParam;
+            }
+        }
+
+        // Date range filtering
+        if (dateFilter === "thisWeek") {
+            const now = new Date();
+            const dayOfWeek = now.getDay();
+            const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() + diffToMon);
+            weekStart.setHours(0, 0, 0, 0);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 6);
+            weekEnd.setHours(23, 59, 59, 999);
+            filter.scheduledDate = { $gte: weekStart, $lte: weekEnd };
+        } else if (dateFilter === "thisMonth") {
+            const now = new Date();
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+            filter.scheduledDate = { $gte: monthStart, $lte: monthEnd };
+        }
 
         const [bookings, total] = await Promise.all([
             StylistBooking.find(filter)
                 .populate("userId", "displayName phoneNumber profilePictureUrl")
-                .sort({ createdAt: -1 })
+                .sort({ scheduledDate: -1, scheduledTime: -1 })
                 .skip(skip)
                 .limit(limit),
             StylistBooking.countDocuments(filter),
@@ -1011,6 +1073,488 @@ exports.initiateJoiningFee = async (req, res) => {
     } catch (err) {
         console.error("initiateJoiningFee:", err);
         return res.status(500).json({ success: false, message: "Internal server error", error: err.message });
+    }
+};
+
+// ─── GET /stylist/me/today-sessions ────────────────────────────────────────────
+
+exports.getTodaySessions = async (req, res) => {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+        const profile = await findProfileByUserId(userId);
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const sessions = await StylistBooking.find({
+            stylistId: profile._id,
+            scheduledDate: { $gte: todayStart, $lte: todayEnd },
+            status: { $in: ["pending", "confirmed", "in_progress"] },
+        })
+            .populate("userId", "displayName phoneNumber profilePictureUrl")
+            .sort({ scheduledTime: 1 });
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                sessions: sessions.map(formatBooking),
+                count: sessions.length,
+            },
+        });
+    } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
+        if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
+        console.error("getTodaySessions:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ─── GET /stylist/me/schedule-stats ────────────────────────────────────────────
+// Returns stats for the "My Schedules" page header: available hours, booked sessions,
+// time-off days, and next session this week.
+
+exports.getScheduleStats = async (req, res) => {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+        const profile = await findProfileByUserId(userId);
+
+        // Week boundaries (Mon–Sun of current week)
+        const now = new Date();
+        const dayOfWeek = now.getDay(); // 0=Sun
+        const diffToMon = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() + diffToMon);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+
+        // Booked sessions this week
+        const [bookedThisWeek, nextSessionArr] = await Promise.all([
+            StylistBooking.countDocuments({
+                stylistId: profile._id,
+                scheduledDate: { $gte: weekStart, $lte: weekEnd },
+                status: { $in: ["pending", "confirmed", "in_progress"] },
+            }),
+            StylistBooking.find({
+                stylistId: profile._id,
+                scheduledDate: { $gte: now },
+                status: { $in: ["pending", "confirmed"] },
+            })
+                .sort({ scheduledDate: 1, scheduledTime: 1 })
+                .limit(1),
+        ]);
+
+        // Available hours & time-off days from professional availability on the profile
+        const avail = profile.professionalAvailability || {};
+        const dayAvailability = avail.dayAvailability || {};
+        const startTime = avail.startTime || "10:00 AM";
+        const endTime = avail.endTime || "7:00 PM";
+
+        const parseHour = (t) => {
+            if (!t) return 0;
+            const match = t.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+            if (!match) return 0;
+            let h = parseInt(match[1]);
+            const m = parseInt(match[2]) / 60;
+            const period = (match[3] || "").toUpperCase();
+            if (period === "PM" && h !== 12) h += 12;
+            if (period === "AM" && h === 12) h = 0;
+            return h + m;
+        };
+
+        const hoursPerDay = Math.max(0, parseHour(endTime) - parseHour(startTime));
+
+        const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        let availableDays = 0;
+        let timeOffDays = 0;
+
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(weekStart);
+            d.setDate(weekStart.getDate() + i);
+            const dayName = DAY_NAMES[d.getDay()];
+            if (dayAvailability[dayName] === true) {
+                availableDays++;
+            } else {
+                timeOffDays++;
+            }
+        }
+
+        // Subtract booked hours from available hours
+        const bookedHoursQuery = await StylistBooking.aggregate([
+            {
+                $match: {
+                    stylistId: profile._id,
+                    scheduledDate: { $gte: weekStart, $lte: weekEnd },
+                    status: { $in: ["pending", "confirmed", "in_progress"] },
+                },
+            },
+            { $group: { _id: null, totalMinutes: { $sum: "$duration" } } },
+        ]);
+        const bookedMinutes = bookedHoursQuery[0]?.totalMinutes || 0;
+        const totalAvailableHours = availableDays * hoursPerDay;
+        const availableHours = Math.max(0, totalAvailableHours - bookedMinutes / 60);
+
+        const nextSession = nextSessionArr[0] || null;
+        let nextSessionTime = null;
+        if (nextSession) {
+            const d = new Date(nextSession.scheduledDate);
+            const [h, m] = nextSession.scheduledTime.split(":");
+            d.setHours(parseInt(h), parseInt(m), 0, 0);
+            nextSessionTime = d.toISOString();
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                availableHoursThisWeek: Math.round(availableHours * 10) / 10,
+                bookedSessionsThisWeek: bookedThisWeek,
+                timeOffDaysThisWeek: timeOffDays,
+                nextSessionTime,
+                weekStart: weekStart.toISOString(),
+                weekEnd: weekEnd.toISOString(),
+            },
+        });
+    } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
+        if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
+        console.error("getScheduleStats:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ─── GET /stylist/me/earnings-summary ──────────────────────────────────────────
+// Comprehensive earnings breakdown for the Earnings page.
+
+exports.getEarningsSummary = async (req, res) => {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+        const profile = await findProfileByUserId(userId);
+        const profileId = profile._id;
+
+        const now = new Date();
+        const settlementCutoff = new Date(now.getTime() - PAYOUT_SETTLEMENT_DAYS * 24 * 60 * 60 * 1000);
+
+        // Month boundaries
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevMonthEnd = new Date(monthStart.getTime() - 1);
+
+        const baseMatch = { stylistId: profileId, status: "completed" };
+
+        const [allTimeAgg, thisMonthAgg, prevMonthAgg, pendingAgg, completedPayoutsAgg] = await Promise.all([
+            // All-time earnings
+            StylistBooking.aggregate([
+                { $match: baseMatch },
+                { $group: { _id: null, total: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } } } },
+            ]),
+            // This month
+            StylistBooking.aggregate([
+                { $match: { ...baseMatch, completedAt: { $gte: monthStart } } },
+                { $group: { _id: null, total: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } } } },
+            ]),
+            // Previous month (for trend)
+            StylistBooking.aggregate([
+                { $match: { ...baseMatch, completedAt: { $gte: prevMonthStart, $lte: prevMonthEnd } } },
+                { $group: { _id: null, total: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } } } },
+            ]),
+            // Pending payouts: completed within settlement window, not yet released
+            StylistBooking.aggregate([
+                { $match: { ...baseMatch, completedAt: { $gte: settlementCutoff } } },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } },
+                        count: { $sum: 1 },
+                        oldestCompletedAt: { $min: "$completedAt" },
+                    },
+                },
+            ]),
+            // Completed payouts: settled (older than settlement window)
+            StylistBooking.aggregate([
+                { $match: { ...baseMatch, completedAt: { $lt: settlementCutoff } } },
+                { $group: { _id: null, total: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } } } },
+            ]),
+        ]);
+
+        const allTimeTotal = allTimeAgg[0]?.total || 0;
+        const thisMonthTotal = thisMonthAgg[0]?.total || 0;
+        const prevMonthTotal = prevMonthAgg[0]?.total || 0;
+        const pendingTotal = pendingAgg[0]?.total || 0;
+        const pendingCount = pendingAgg[0]?.count || 0;
+        const completedPayoutsTotal = completedPayoutsAgg[0]?.total || 0;
+
+        // Trend calculation (percentage change vs previous month)
+        const monthTrend = prevMonthTotal === 0
+            ? (thisMonthTotal > 0 ? 100 : 0)
+            : Math.round(((thisMonthTotal - prevMonthTotal) / prevMonthTotal) * 100);
+
+        // Upcoming payout: when does the oldest pending payout settle?
+        let upcomingPayout = null;
+        if (pendingAgg[0]?.oldestCompletedAt) {
+            const releaseDate = new Date(pendingAgg[0].oldestCompletedAt);
+            releaseDate.setDate(releaseDate.getDate() + PAYOUT_SETTLEMENT_DAYS);
+            const daysLeft = Math.max(0, Math.ceil((releaseDate - now) / (1000 * 60 * 60 * 24)));
+            upcomingPayout = {
+                amount: pendingTotal,
+                expectedDate: releaseDate.toISOString(),
+                sessionsIncluded: pendingCount,
+                daysLeft,
+            };
+        }
+
+        // Graph data (view: 'week' | 'month' | 'year')
+        const view = req.query.view || "month";
+        let graphData = [];
+
+        if (view === "week") {
+            // Last 7 days daily breakdown
+            const weekAgo = new Date(now);
+            weekAgo.setDate(now.getDate() - 6);
+            weekAgo.setHours(0, 0, 0, 0);
+
+            const dailyAgg = await StylistBooking.aggregate([
+                { $match: { ...baseMatch, completedAt: { $gte: weekAgo } } },
+                {
+                    $group: {
+                        _id: {
+                            year: { $year: "$completedAt" },
+                            month: { $month: "$completedAt" },
+                            day: { $dayOfMonth: "$completedAt" },
+                        },
+                        revenue: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } },
+                        bookings: { $sum: 1 },
+                    },
+                },
+                { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+            ]);
+
+            const byDay = {};
+            dailyAgg.forEach((r) => {
+                const key = `${r._id.year}-${String(r._id.month).padStart(2, "0")}-${String(r._id.day).padStart(2, "0")}`;
+                byDay[key] = { revenue: r.revenue, bookings: r.bookings };
+            });
+
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(now.getDate() - i);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                graphData.push({ label: key, revenue: byDay[key]?.revenue || 0, bookings: byDay[key]?.bookings || 0 });
+            }
+        } else if (view === "year") {
+            // Last 5 years
+            const yearAgg = await StylistBooking.aggregate([
+                { $match: { ...baseMatch, completedAt: { $gte: new Date(now.getFullYear() - 4, 0, 1) } } },
+                {
+                    $group: {
+                        _id: { year: { $year: "$completedAt" } },
+                        revenue: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } },
+                        bookings: { $sum: 1 },
+                    },
+                },
+                { $sort: { "_id.year": 1 } },
+            ]);
+            const byYear = {};
+            yearAgg.forEach((r) => { byYear[r._id.year] = { revenue: r.revenue, bookings: r.bookings }; });
+            for (let y = now.getFullYear() - 4; y <= now.getFullYear(); y++) {
+                graphData.push({ label: String(y), revenue: byYear[y]?.revenue || 0, bookings: byYear[y]?.bookings || 0 });
+            }
+        } else {
+            // Default: last 12 months
+            const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+            const monthlyAgg = await StylistBooking.aggregate([
+                { $match: { ...baseMatch, completedAt: { $gte: twelveMonthsAgo } } },
+                {
+                    $group: {
+                        _id: { year: { $year: "$completedAt" }, month: { $month: "$completedAt" } },
+                        revenue: { $sum: { $ifNull: ["$totalAmount", { $ifNull: ["$paymentAmount", 0] }] } },
+                        bookings: { $sum: 1 },
+                    },
+                },
+                { $sort: { "_id.year": 1, "_id.month": 1 } },
+            ]);
+            const byMonth = {};
+            monthlyAgg.forEach((r) => { byMonth[`${r._id.year}-${r._id.month}`] = { revenue: r.revenue, bookings: r.bookings }; });
+            for (let i = 11; i >= 0; i--) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+                const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                graphData.push({ label: MONTHS[d.getMonth()], revenue: byMonth[key]?.revenue || 0, bookings: byMonth[key]?.bookings || 0 });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                currency: "INR",
+                totalEarningsAllTime: allTimeTotal,
+                thisMonthEarnings: thisMonthTotal,
+                monthTrendPercent: monthTrend,
+                pendingPayouts: pendingTotal,
+                completedPayouts: completedPayoutsTotal,
+                settlementWindowDays: PAYOUT_SETTLEMENT_DAYS,
+                upcomingPayout,
+                graph: graphData,
+                view,
+            },
+        });
+    } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
+        if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
+        console.error("getEarningsSummary:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ─── GET /stylist/me/transactions ──────────────────────────────────────────────
+// Recent transactions for the Earnings page.
+
+exports.getRecentTransactions = async (req, res) => {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+        const profile = await findProfileByUserId(userId);
+
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const [transactions, total] = await Promise.all([
+            StylistBooking.find({ stylistId: profile._id, status: "completed" })
+                .populate("userId", "displayName phoneNumber profilePictureUrl")
+                .sort({ completedAt: -1, createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            StylistBooking.countDocuments({ stylistId: profile._id, status: "completed" }),
+        ]);
+
+        const formatted = transactions.map((b) => ({
+            transactionId: b.razorpayPaymentId || b.bookingId,
+            bookingId: b._id,
+            clientName: b.userId?.displayName || "Client",
+            clientPhone: b.userId?.phoneNumber || "",
+            clientPicture: b.userId?.profilePictureUrl || null,
+            sessionType: b.bookingType,
+            sessionTitle: b.bookingTitle,
+            date: b.completedAt || b.updatedAt,
+            scheduledDate: b.scheduledDate,
+            amount: b.totalAmount ?? b.paymentAmount,
+            currency: b.paymentCurrency || "INR",
+            paymentMode: b.paymentMethod || "razorpay",
+            paymentStatus: b.paymentStatus,
+            status: b.status,
+        }));
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                transactions: formatted,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.ceil(total / limit),
+                },
+            },
+        });
+    } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
+        if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
+        console.error("getRecentTransactions:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ─── GET /stylist/me/payment-methods ───────────────────────────────────────────
+
+exports.getPaymentMethods = async (req, res) => {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+        const profile = await findProfileByUserId(userId);
+
+        const pm = profile.paymentMethods || {};
+        return res.status(200).json({
+            success: true,
+            data: {
+                bankAccount: {
+                    bankName: pm.bankAccount?.bankName || "",
+                    accountNumber: pm.bankAccount?.accountNumber
+                        ? `XXXX XXXX ${pm.bankAccount.accountNumber.slice(-4)}`
+                        : "",
+                    ifscCode: pm.bankAccount?.ifscCode || "",
+                    accountHolderName: pm.bankAccount?.accountHolderName || "",
+                    isVerified: pm.bankAccount?.isVerified || false,
+                },
+                upiId: pm.upiId || "",
+            },
+        });
+    } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
+        if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
+        console.error("getPaymentMethods:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+// ─── PUT /stylist/me/payment-methods ───────────────────────────────────────────
+
+exports.updatePaymentMethods = async (req, res) => {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+        const profile = await findProfileByUserId(userId);
+
+        const { bankAccount, upiId } = req.body;
+
+        if (!profile.paymentMethods) {
+            profile.paymentMethods = {};
+        }
+
+        if (bankAccount) {
+            const existing = profile.paymentMethods.bankAccount || {};
+            profile.paymentMethods.bankAccount = {
+                bankName: bankAccount.bankName ?? existing.bankName ?? "",
+                accountNumber: bankAccount.accountNumber ?? existing.accountNumber ?? "",
+                ifscCode: bankAccount.ifscCode ?? existing.ifscCode ?? "",
+                accountHolderName: bankAccount.accountHolderName ?? existing.accountHolderName ?? "",
+                isVerified: existing.isVerified || false, // verification is system-controlled
+            };
+        }
+
+        if (upiId !== undefined) {
+            profile.paymentMethods.upiId = upiId;
+        }
+
+        profile.updatedAt = new Date();
+        await profile.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Payment methods updated successfully",
+            data: {
+                bankAccount: {
+                    bankName: profile.paymentMethods.bankAccount?.bankName || "",
+                    accountNumber: profile.paymentMethods.bankAccount?.accountNumber
+                        ? `XXXX XXXX ${profile.paymentMethods.bankAccount.accountNumber.slice(-4)}`
+                        : "",
+                    ifscCode: profile.paymentMethods.bankAccount?.ifscCode || "",
+                    accountHolderName: profile.paymentMethods.bankAccount?.accountHolderName || "",
+                    isVerified: profile.paymentMethods.bankAccount?.isVerified || false,
+                },
+                upiId: profile.paymentMethods.upiId || "",
+            },
+        });
+    } catch (err) {
+        if (err.status === 401) return res.status(401).json({ success: false, message: err.message });
+        if (err.status === 404) return res.status(404).json({ success: false, message: err.message });
+        console.error("updatePaymentMethods:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
     }
 };
 

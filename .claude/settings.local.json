@@ -6,7 +6,14 @@
       "Bash(done)",
       "Bash(wc -l /c/Users/offic/Onedrive/Desktop/lsdauth/src/controllers/*.js)",
       "Bash(grep \"\\\\.js$\")",
-      "Bash(ls -1 /c/Users/offic/Onedrive/Desktop/lsdauth/*.js)"
+      "Bash(ls -1 /c/Users/offic/Onedrive/Desktop/lsdauth/*.js)",
+      "Bash(dir /s /b)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Rajat\\\\Desktop\\\\backend\\\\lsd_application_backend2\" -Recurse -Force | Select-Object -ExpandProperty FullName | ForEach-Object { $_ -replace [regex]::Escape\\(\"c:\\\\Users\\\\Rajat\\\\Desktop\\\\backend\\\\lsd_application_backend2\"\\), \".\" })",
+      "Bash(node --check src/controllers/professionalStylistController.js)",
+      "Bash(node --check src/controllers/stylistBookingController.js)",
+      "Bash(node --check src/models/stylistProfile.js)",
+      "Bash(node --check src/routes/stylistRoutes.js)",
+      "Bash(node -e \"const c = require\\('./src/controllers/professionalStylistController'\\); console.log\\(Object.keys\\(c\\).join\\('\\\\n'\\)\\);\")"
     ]
   }
 }

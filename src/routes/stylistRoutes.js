@@ -198,6 +198,43 @@ router.get(
     authMiddleware,
     professionalStylistController.getBookingRevenue
 );
+
+router.get(
+    "/me/earnings-summary",
+    authMiddleware,
+    professionalStylistController.getEarningsSummary
+);
+
+router.get(
+    "/me/transactions",
+    authMiddleware,
+    professionalStylistController.getRecentTransactions
+);
+
+router.get(
+    "/me/payment-methods",
+    authMiddleware,
+    professionalStylistController.getPaymentMethods
+);
+
+router.put(
+    "/me/payment-methods",
+    authMiddleware,
+    professionalStylistController.updatePaymentMethods
+);
+
+router.get(
+    "/me/today-sessions",
+    authMiddleware,
+    professionalStylistController.getTodaySessions
+);
+
+router.get(
+    "/me/schedule-stats",
+    authMiddleware,
+    professionalStylistController.getScheduleStats
+);
+
 router.put(
     "/me/profile",
     authMiddleware,

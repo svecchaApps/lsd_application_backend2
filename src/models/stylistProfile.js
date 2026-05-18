@@ -301,6 +301,18 @@ const stylistProfileSchema = new mongoose.Schema({
         }],
     },
 
+    // Bank account and UPI for earnings payouts
+    paymentMethods: {
+        bankAccount: {
+            bankName: { type: String, default: "" },
+            accountNumber: { type: String, default: "" },
+            ifscCode: { type: String, default: "" },
+            accountHolderName: { type: String, default: "" },
+            isVerified: { type: Boolean, default: false },
+        },
+        upiId: { type: String, default: "" },
+    },
+
     updatedAt: {
         type: Date,
         default: Date.now,
