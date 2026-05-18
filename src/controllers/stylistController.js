@@ -585,13 +585,6 @@ exports.updateStylistProfile = async (req, res) => {
             });
         }
 
-        // If profile was approved and now being updated, reset approval status
-        if (stylistProfile.isApproved) {
-            stylistProfile.isApproved = false;
-            stylistProfile.approvalStatus = "pending";
-            await stylistProfile.save();
-        }
-
         return res.status(200).json({
             success: true,
             message: "Stylist profile updated successfully",
