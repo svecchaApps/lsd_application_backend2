@@ -55,7 +55,9 @@ const corsOptions = {
     "https://admin.indigorhapsody.com",
     "https://lsdweb-8q0kq6097-indigo-rhapsody.vercel.app",
     "http://localhost:5173",
-    "https://www.admin.indigorhapsody.com"
+    "https://www.admin.indigorhapsody.com",
+    "https://lsdweb.vercel.app",
+    "https://web-lifestyle-designer.vercel.app"
   ],
   credentials: true,
   optionsSuccessStatus: 200
