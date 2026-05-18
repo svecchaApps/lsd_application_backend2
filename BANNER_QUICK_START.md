@@ -1,5 +1,4 @@
 
-## 🚀 Quick Setup
 
 ### 1. Create Your First Banner
 
