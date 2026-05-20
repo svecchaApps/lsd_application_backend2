@@ -1,6 +1,5 @@
 
 
-### Problem Description
 When fetching banners for mobile platform, only 2 banners are returned instead of all available mobile banners.
 
 ---
