@@ -10,6 +10,7 @@ const toUserObjectId = (id) => {
     return new mongoose.Types.ObjectId(s);
 };
 const StylistAvailability = require("../models/stylistAvailability");
+const UserStylist = require("../models/stylistUser");
 const { Chat, Message } = require("../models/chat");
 const RazorpayService = require("../service/razorpayService");
 const AgoraService = require("../service/agoraService");
@@ -1773,6 +1774,122 @@ class StylistBookingController {
                 success: false,
                 message: "Failed to submit review",
                 error: error.message
+            });
+        }
+    }
+
+    /**
+     * Client style profile for a booking (stylist only)
+     * GET /stylist-booking/:bookingId/client-profile
+     */
+    static async getBookingClientProfile(req, res) {
+        try {
+            const { bookingId } = req.params;
+
+            if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid booking ID format",
+                });
+            }
+
+            const stylistProfile = await StylistProfile.findOne({
+                userId: req.user._id,
+            });
+            if (!stylistProfile) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Stylist profile not found",
+                });
+            }
+
+            const booking = await StylistBooking.findById(bookingId).populate(
+                "userId",
+                "displayName email phoneNumber profilePictureUrl"
+            );
+
+            if (!booking) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Booking not found",
+                });
+            }
+
+            if (booking.stylistId.toString() !== stylistProfile._id.toString()) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Access denied",
+                });
+            }
+
+            const clientUser = booking.userId;
+            const clientUserId =
+                clientUser?._id?.toString?.() ?? booking.userId?.toString?.();
+
+            let styleProfile = null;
+            if (clientUserId) {
+                const userStylist = await UserStylist.findOne({
+                    userId: clientUserId,
+                });
+                if (userStylist) {
+                    styleProfile = {
+                        userStylistId: userStylist._id,
+                        userId: clientUserId,
+                        stylePreferences: userStylist.style_Preference || [],
+                        fashionGoals: userStylist.fashion_goals || [],
+                        bodyType: userStylist.body_type || [],
+                        sizeInformation: userStylist.size_Information || [],
+                        colorPreference: userStylist.color_Preference || [],
+                        budgetRange: userStylist.budget_Range,
+                        budgetCurrency: userStylist.budget_Currency,
+                        experimental: userStylist.experimental || [],
+                        goToOutfit: userStylist.go_to_outfit,
+                        fashionVibe: userStylist.fashion_vibe,
+                        userPictures: userStylist.user_Pictures || [],
+                    };
+                }
+            }
+
+            const clientInfo = clientUser
+                ? {
+                      displayName: clientUser.displayName,
+                      email: clientUser.email,
+                      phoneNumber: clientUser.phoneNumber,
+                      profilePictureUrl: clientUser.profilePictureUrl,
+                  }
+                : null;
+
+            return res.status(200).json({
+                success: true,
+                message: "Client profile retrieved",
+                data: {
+                    booking: {
+                        _id: booking._id,
+                        status: booking.status,
+                        bookingTitle: booking.bookingTitle,
+                        sessionType: booking.sessionType,
+                        scheduledDate: booking.scheduledDate,
+                        scheduledTime: booking.scheduledTime,
+                        scheduledAt: booking.scheduledAt,
+                        notes: booking.notes,
+                        description: booking.description,
+                        paymentStatus: booking.paymentStatus,
+                        createdAt: booking.createdAt,
+                    },
+                    client: {
+                        userId: clientUserId,
+                        ...clientInfo,
+                    },
+                    hasStyleProfile: !!styleProfile,
+                    styleProfile,
+                },
+            });
+        } catch (error) {
+            console.error("getBookingClientProfile error:", error);
+            return res.status(500).json({
+                success: false,
+                message: "Failed to load client profile",
+                error: error.message,
             });
         }
     }

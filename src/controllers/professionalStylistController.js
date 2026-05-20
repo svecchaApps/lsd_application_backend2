@@ -183,11 +183,14 @@ const formatBooking = (b) => ({
 
 // Valid status transitions
 const TRANSITIONS = {
-    pending: ["confirmed", "rejected"],
-    confirmed: ["completed", "cancelled"],
+    pending: ["confirmed", "rejected", "cancelled"],
+    confirmed: ["completed", "cancelled", "in_progress"],
+    in_progress: ["completed", "cancelled"],
     completed: [],
     rejected: [],
     cancelled: [],
+    rescheduled: ["confirmed", "cancelled"],
+    no_show: ["cancelled", "completed"],
 };
 
 // ─── GET /stylist/check-professional/:phoneNumber ────────────────────────────
@@ -778,8 +781,25 @@ exports.updateBookingStatus = async (req, res) => {
         // Apply update
         booking.status = status;
         if (status === "rejected") booking.rejectionReason = reason || "";
-        if (status === "cancelled") booking.cancellationReason = reason || "";
-        if (status === "completed") booking.completedAt = new Date();
+        if (status === "cancelled") {
+            booking.cancellationReason = reason || "";
+            if (booking.videoCallStatus === "in_progress") {
+                booking.videoCallStatus = "ended";
+                booking.videoCallEndedAt = new Date();
+            }
+        }
+        if (status === "completed") {
+            booking.completedAt = new Date();
+            if (booking.videoCallStatus === "in_progress") {
+                booking.videoCallStatus = "ended";
+                booking.videoCallEndedAt = new Date();
+                if (booking.videoCallStartedAt) {
+                    booking.videoCallDuration = Math.round(
+                        (booking.videoCallEndedAt - booking.videoCallStartedAt) / (1000 * 60)
+                    );
+                }
+            }
+        }
 
         await booking.save();
 

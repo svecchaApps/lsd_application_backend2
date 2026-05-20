@@ -120,6 +120,14 @@ router.post(
     stylistBookingController.cancelBooking
 );
 
+// Client style profile for stylist (must be before /:bookingId/review)
+router.get(
+    "/:bookingId/client-profile",
+    authMiddleware,
+    roleMiddleware(["Stylist", "stylist"]),
+    stylistBookingController.getBookingClientProfile
+);
+
 // Submit review / rating for a completed booking (user only)
 router.post(
     "/:bookingId/review",
