@@ -1,4 +1,3 @@
-# Banner Mobile Issue - Troubleshooting Guide
 
 ## 🐛 **Issue**: Only 2 Banners Showing for Mobile
 
