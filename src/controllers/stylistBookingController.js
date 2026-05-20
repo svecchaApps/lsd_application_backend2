@@ -17,6 +17,41 @@ const AgoraService = require("../service/agoraService");
 const { createNotification, sendFcmNotification } = require("./notificationController");
 const { ensureBookingPaidForVideo } = require("../utils/bookingPaymentUtils");
 
+/** Mongo user id from JWT (`_id` or `id` depending on token type). */
+const getAuthUserId = (req) => {
+    if (!req.user) return null;
+    const v = req.user._id ?? req.user.id;
+    return v != null ? v : null;
+};
+
+/** True if the authenticated user is the stylist assigned to this booking. */
+const stylistOwnsBooking = async (booking, authUserId) => {
+    if (!authUserId) return false;
+
+    const stylistProfile = await StylistProfile.findOne({ userId: authUserId });
+    if (!stylistProfile) return false;
+
+    const bookingStylistRef = booking.stylistId?._id ?? booking.stylistId;
+    if (bookingStylistRef && bookingStylistRef.toString() === stylistProfile._id.toString()) {
+        return true;
+    }
+
+    let stylistOnBooking = booking.stylistId;
+    if (!stylistOnBooking?.userId) {
+        stylistOnBooking = await StylistProfile.findById(bookingStylistRef);
+    }
+    if (stylistOnBooking?.userId && stylistOnBooking.userId.toString() === authUserId.toString()) {
+        return true;
+    }
+
+    // Legacy: stylistId stored as auth User id
+    if (bookingStylistRef && bookingStylistRef.toString() === authUserId.toString()) {
+        return true;
+    }
+
+    return false;
+};
+
 class StylistBookingController {
 
     /**
@@ -1785,6 +1820,14 @@ class StylistBookingController {
     static async getBookingClientProfile(req, res) {
         try {
             const { bookingId } = req.params;
+            const authUserId = getAuthUserId(req);
+
+            if (!authUserId) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Unauthorized",
+                });
+            }
 
             if (!mongoose.Types.ObjectId.isValid(bookingId)) {
                 return res.status(400).json({
@@ -1793,20 +1836,9 @@ class StylistBookingController {
                 });
             }
 
-            const stylistProfile = await StylistProfile.findOne({
-                userId: req.user._id,
-            });
-            if (!stylistProfile) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Stylist profile not found",
-                });
-            }
-
-            const booking = await StylistBooking.findById(bookingId).populate(
-                "userId",
-                "displayName email phoneNumber profilePictureUrl"
-            );
+            const booking = await StylistBooking.findById(bookingId)
+                .populate("userId", "displayName email phoneNumber profilePictureUrl")
+                .populate("stylistId", "userId stylistName");
 
             if (!booking) {
                 return res.status(404).json({
@@ -1815,7 +1847,8 @@ class StylistBookingController {
                 });
             }
 
-            if (booking.stylistId.toString() !== stylistProfile._id.toString()) {
+            const ownsBooking = await stylistOwnsBooking(booking, authUserId);
+            if (!ownsBooking) {
                 return res.status(403).json({
                     success: false,
                     message: "Access denied",
