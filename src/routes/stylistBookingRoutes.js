@@ -58,6 +58,12 @@ router.get(
     razorpayBookingController.getPaymentStatus
 );
 
+router.post(
+    "/payment/reconcile/:bookingId",
+    authMiddleware,
+    razorpayBookingController.reconcilePayment
+);
+
 router.get(
     "/user-bookings",
     authMiddleware,

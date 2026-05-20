@@ -14,6 +14,7 @@ const { Chat, Message } = require("../models/chat");
 const RazorpayService = require("../service/razorpayService");
 const AgoraService = require("../service/agoraService");
 const { createNotification, sendFcmNotification } = require("./notificationController");
+const { ensureBookingPaidForVideo } = require("../utils/bookingPaymentUtils");
 
 class StylistBookingController {
 
@@ -898,8 +899,17 @@ class StylistBookingController {
             }
 
             // Check if user is authorized (either user or stylist)
-            const isUser = booking.userId._id.toString() === userId.toString();
-            const isStylist = booking.stylistId.userId.toString() === userId.toString();
+            const clientId = booking.userId?._id ?? booking.userId;
+            const isUser = clientId && clientId.toString() === userId.toString();
+
+            let stylistProfile = booking.stylistId;
+            if (!stylistProfile?.userId) {
+                stylistProfile = await StylistProfile.findById(
+                    booking.stylistId?._id ?? booking.stylistId
+                );
+            }
+            const stylistUserId = stylistProfile?.userId;
+            const isStylist = stylistUserId && stylistUserId.toString() === userId.toString();
 
             if (!isUser && !isStylist) {
                 return res.status(403).json({
@@ -908,10 +918,11 @@ class StylistBookingController {
                 });
             }
 
-            if (!["completed", "test"].includes(booking.paymentStatus)) {
+            const paymentCheck = await ensureBookingPaidForVideo(booking);
+            if (!paymentCheck.ok) {
                 return res.status(400).json({
                     success: false,
-                    message: "Payment not completed"
+                    message: paymentCheck.message || "Payment not completed"
                 });
             }
 

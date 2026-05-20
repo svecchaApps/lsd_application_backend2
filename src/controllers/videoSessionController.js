@@ -1,6 +1,7 @@
 const StylistBooking = require("../models/stylistBooking");
 const StylistProfile = require("../models/stylistProfile");
 const AgoraService = require("../service/agoraService");
+const { ensureBookingPaidForVideo } = require("../utils/bookingPaymentUtils");
 
 exports.joinSession = async (req, res) => {
     try {
@@ -56,11 +57,12 @@ exports.joinSession = async (req, res) => {
         });
       }
 
-      // 💰 Allow test + real payments
-      if (!["completed", "test"].includes(booking.paymentStatus)) {
+      // 💰 Allow paid bookings; reconcile Razorpay if DB still says "processing"
+      const paymentCheck = await ensureBookingPaidForVideo(booking);
+      if (!paymentCheck.ok) {
         return res.status(400).json({
           success: false,
-          message: "Payment not completed"
+          message: paymentCheck.message || "Payment not completed",
         });
       }
   

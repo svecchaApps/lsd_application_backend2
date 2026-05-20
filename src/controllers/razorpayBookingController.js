@@ -3,6 +3,7 @@ const StylistBooking = require("../models/stylistBooking");
 const StylistProfile = require("../models/stylistProfile");
 const RazorpayService = require("../service/razorpayService");
 const { createNotification, sendFcmNotification } = require("./notificationController");
+const { ensureBookingPaidForVideo } = require("../utils/bookingPaymentUtils");
 
 /**
  * Razorpay Payment Controller for Stylist Bookings
@@ -596,6 +597,71 @@ class RazorpayBookingController {
             return res.status(500).json({
                 success: false,
                 message: "Failed to create booking and initiate payment",
+                error: error.message
+            });
+        }
+    }
+
+    /**
+     * Reconcile payment with Razorpay (fixes DB stuck on "processing" after successful pay)
+     *
+     * POST /api/stylist-booking/payment/reconcile/:bookingId
+     */
+    static async reconcilePayment(req, res) {
+        try {
+            const { bookingId } = req.params;
+            const userId = req.user._id;
+
+            if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid booking ID format"
+                });
+            }
+
+            const booking = await StylistBooking.findById(bookingId)
+                .populate("stylistId", "userId stylistName")
+                .populate("userId", "displayName email");
+
+            if (!booking) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Booking not found"
+                });
+            }
+
+            const clientId = booking.userId?._id ?? booking.userId;
+            const isUser = clientId && clientId.toString() === userId.toString();
+            const stylistUserId = booking.stylistId?.userId;
+            const isStylist = stylistUserId && stylistUserId.toString() === userId.toString();
+
+            if (!isUser && !isStylist) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Access denied"
+                });
+            }
+
+            const paymentCheck = await ensureBookingPaidForVideo(booking);
+
+            return res.status(paymentCheck.ok ? 200 : 400).json({
+                success: paymentCheck.ok,
+                message: paymentCheck.ok
+                    ? "Payment confirmed for this booking"
+                    : (paymentCheck.message || "Payment not completed"),
+                data: {
+                    bookingId: booking._id,
+                    paymentStatus: booking.paymentStatus,
+                    bookingStatus: booking.status,
+                    razorpayOrderId: booking.razorpayOrderId,
+                    razorpayPaymentId: booking.razorpayPaymentId,
+                }
+            });
+        } catch (error) {
+            console.error("Reconcile payment error:", error);
+            return res.status(500).json({
+                success: false,
+                message: "Failed to reconcile payment",
                 error: error.message
             });
         }
